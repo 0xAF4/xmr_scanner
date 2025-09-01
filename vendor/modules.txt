@@ -1,0 +1,5 @@
+# github.com/cirocosta/go-monero v0.0.5
+## explicit; go 1.16
+github.com/cirocosta/go-monero/pkg/levin
+# github.com/stretchr/testify v1.8.4
+## explicit; go 1.20
