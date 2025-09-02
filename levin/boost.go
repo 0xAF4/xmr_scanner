@@ -35,6 +35,17 @@ func (v BoostByte) Bytes() []byte {
 	}
 }
 
+type BoostUint16 uint16
+
+func (v BoostUint16) Bytes() []byte {
+	b := []byte{
+		BoostSerializeTypeUint16,
+		0x00, 0x00,
+	}
+	binary.LittleEndian.PutUint16(b[1:], uint16(v))
+	return b
+}
+
 type BoostUint32 uint32
 
 func (v BoostUint32) Bytes() []byte {

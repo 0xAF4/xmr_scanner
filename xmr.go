@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -265,11 +266,13 @@ func (p *ScannerXMR) SendNotifyRequestChain() {
 	for !p.destroy {
 		if p.connected {
 			p.n.NotifyWithLevel("SendNotifyRequestChain", LevelSuccess)
+			byter, _ := hex.DecodeString(p.lastBlockHash)
+
 			balbik := (&levin.PortableStorage{
 				Entries: []levin.Entry{
 					{
 						Name:         "block_ids",
-						Serializable: levin.BoostString(p.lastBlockHash),
+						Serializable: levin.BoostByte(byter),
 					},
 				},
 			}).Bytes()
