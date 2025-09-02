@@ -39,13 +39,6 @@ func New(coin string, n Notifier, d DBWrapper) (*bScanner, error) {
 		scn.Scanner = nil
 	}
 
-	// if scn.Scanner != nil {
-	// 	err = scn.Scanner.Connect()
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-
 	return &scn, nil
 }
 

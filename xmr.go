@@ -98,9 +98,6 @@ func (p *ScannerXMR) Disconnect(err error) {
 	}
 }
 
-
-
-
 func (p *ScannerXMR) SetPeers(pers map[string]*levin.Peer) {
 	var list Nodelist
 	for _, node := range pers {
@@ -108,8 +105,6 @@ func (p *ScannerXMR) SetPeers(pers map[string]*levin.Peer) {
 	}
 	p.nodelist = &list
 }
-
-
 
 func GetBlock() []byte {
 	return (&levin.PortableStorage{
@@ -127,7 +122,6 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	ping := func(header *levin.Header) error {
 		if header.Flags == levin.LevinPacketReponse {
 			if levin.IsValidReturnCode(header.ReturnCode) {
-				// pong := levin.NewPingFromPortableStorage(raw)
 				p.n.NotifyWithLevel("GET PONG WITH SUCCESS", LevelSuccess)
 			} else {
 				p.n.NotifyWithLevel(fmt.Sprintf("GET PONG WITH ERROR::%d", header.ReturnCode), LevelError)
@@ -205,10 +199,10 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		p.showHeader(header)
 		return nil
 		// return newtx(header, raw)
-	case levin.NotifyRequestChain:
-		p.showHeader(header)
-		return nil
-		// return requestchain(header, raw)
+	// case levin.NotifyRequestChain:
+	// 	p.showHeader(header)
+	// 	return nil
+	// return requestchain(header, raw)
 	// case levin.NotifyNewFluffyBlock:
 	// 	p.showHeader(header)
 	// 	return newblock(header, raw)
@@ -227,6 +221,7 @@ func (p *ScannerXMR) MainLoop() { //3
 	go p.KeepConnectionLoop()
 	go p.ReadStreamLoop()
 	go p.KeepTimeSync()
+	go p.SendNotifyRequestChain()
 }
 
 func (p *ScannerXMR) KeepConnectionLoop() {
@@ -263,5 +258,23 @@ func (p *ScannerXMR) KeepTimeSync() {
 			p.conn.SendRequest(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
 		}
 		time.Sleep(time.Second * 30)
+	}
+}
+
+func (p *ScannerXMR) SendNotifyRequestChain() {
+	for !p.destroy {
+		if p.connected {
+			p.n.NotifyWithLevel("SendNotifyRequestChain", LevelSuccess)
+			balbik := (&levin.PortableStorage{
+				Entries: []levin.Entry{
+					{
+						Name:         "block_ids",
+						Serializable: levin.BoostString(p.lastBlockHash),
+					},
+				},
+			}).Bytes()
+			p.conn.SendRequest(levin.NotifyRequestChain, balbik)
+		}
+		time.Sleep(time.Second * 10)
 	}
 }

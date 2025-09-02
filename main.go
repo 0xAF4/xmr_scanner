@@ -20,7 +20,7 @@ var (
 	DBMock  = &DatabaseMock{}
 )
 
-func main2() {
+func main() {
 	scanner, err := New(coin, BotMock, DBMock)
 	if err != nil {
 		log.Fatalf("ERROR Scanner(%s): %v", coin, err)
