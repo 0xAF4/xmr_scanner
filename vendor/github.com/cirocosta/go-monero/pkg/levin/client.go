@@ -31,7 +31,7 @@ func WithContextDialer(v ContextDialer) func(*ClientConfig) {
 	}
 }
 
-func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*Client, error) {
+func NewClient(addr string, opts ...ClientOption) (*Client, error) {
 	cfg := &ClientConfig{
 		ContextDialer: &net.Dialer{},
 	}
@@ -39,7 +39,7 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*Client,
 		opt(cfg)
 	}
 
-	conn, err := cfg.ContextDialer.DialContext(ctx, "tcp", addr)
+	conn, err := cfg.ContextDialer.DialContext(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial ctx: %w", err)
 	}
@@ -61,7 +61,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Handshake(ctx context.Context) (*Node, error) {
+func (c *Client) Handshake() (*Node, error) {
 	payload := (&PortableStorage{
 		Entries: []Entry{
 			{
@@ -198,8 +198,30 @@ func (c *Client) SendResponse(Command uint32, payload []byte) error {
 
 // ------------------
 
-func (c *Client) NilPayload() []byte {
+func NilPayload() []byte {
 	return (&PortableStorage{
 		Entries: []Entry{},
+	}).Bytes()
+}
+
+func CoreSyncDataPayload(lastBlockHeight int32, lastBlockHash string) []byte {
+	return (&PortableStorage{
+		Entries: []Entry{
+			{
+				Name: "payload_data",
+				Serializable: &Section{
+					Entries: []Entry{
+						{
+							Name:         "current_height",
+							Serializable: BoostUint64(lastBlockHeight),
+						},
+						{
+							Name:         "top_id",
+							Serializable: BoostString(lastBlockHash),
+						},
+					},
+				},
+			},
+		},
 	}).Bytes()
 }

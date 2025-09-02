@@ -50,7 +50,7 @@ const (
 	CommandSupportFlags uint32 = 1007
 	
 	// --- P2P notify commands ---
-	NotifyNewBlock             uint32 = 2001 // Уведомление о новом блоке
+	NotifyNewBlock             uint32 = 2001 // deprecated
 	NotifyNewTransaction       uint32 = 2002 // Запрос цепочки (отправляем список известных хэшей)
 	NotifyRequestGetObjects    uint32 = 2003 // Запрос блоков/транзакций по хэшу
 	NotifyResponseGetObjects   uint32 = 2004 // Ответ с блоками/транзакциями

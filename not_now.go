@@ -66,19 +66,6 @@ func (p *ScannerXMR) GetBlockDataLoop() {
 	}
 }
 
-func (p *ScannerXMR) KeepConnectionLoop() {
-	for !p.destroy {
-		if !p.connected {
-			p.Connect()
-		} else {
-			time.Sleep(time.Second * 5)
-		}
-	}
-
-	if p.destroy {
-		p.conn.Close()
-	}
-}
 
 func (p *ScannerXMR) showHeader(header *levin.Header) {
 	p.n.NotifyWithLevel(fmt.Sprintf("Message received:"), LevelInfo)
