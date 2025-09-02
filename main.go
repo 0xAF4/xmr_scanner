@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 )
 
 type NotifierMock struct{}
@@ -15,7 +16,8 @@ type Tx struct {
 }
 
 func (n *NotifierMock) NotifyWithLevel(message string, level string) error {
-	fmt.Println("[NOTIFY] " + level + ": " + message)
+	timestamp := time.Now().Format("15:04:05 02.01.2006")
+	fmt.Println("[" + timestamp + "] [NOTIFY] " + level + ": " + message)
 	return nil
 }
 

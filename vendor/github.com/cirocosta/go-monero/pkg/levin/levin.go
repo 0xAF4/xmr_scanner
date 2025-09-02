@@ -48,14 +48,14 @@ const (
 	CommandNetworkState uint32 = 1005
 	CommandPeerID       uint32 = 1006
 	CommandSupportFlags uint32 = 1007
-	
+
 	// --- P2P notify commands ---
 	NotifyNewBlock             uint32 = 2001 // deprecated
 	NotifyNewTransaction       uint32 = 2002 // Запрос цепочки (отправляем список известных хэшей)
 	NotifyRequestGetObjects    uint32 = 2003 // Запрос блоков/транзакций по хэшу
 	NotifyResponseGetObjects   uint32 = 2004 // Ответ с блоками/транзакциями
-	NotifyRequestChain				 uint32	= 2006 // Запрос цепочки
-	NotifyResponseChainEntry	 uint32 = 2007 // Ответ с элементом цепочки	
+	NotifyRequestChain         uint32 = 2006 // Запрос цепочки
+	NotifyResponseChainEntry   uint32 = 2007 // Ответ с элементом цепочки
 	NotifyNewFluffyBlock       uint32 = 2008 // Fluffy-синхронизация (ускоренный sync)
 	NotifyRequestFluffyMissing uint32 = 2009 // Запрос недостающих tx для fluffy-блока
 )
@@ -323,4 +323,3 @@ func (h *Header) Bytes() []byte {
 
 	return header
 }
-

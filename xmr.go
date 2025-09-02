@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -16,7 +15,6 @@ type ScannerXMR struct {
 
 	connected bool
 	destroy   bool
-	timedSync bool
 	uptime    time.Time
 	blocks    *Pool
 
@@ -39,7 +37,6 @@ func NewScannerXMR(nl *Nodelist, startHeight int32, hash string, n Notifier, d D
 		uptime:          time.Now(),
 		connected:       false,
 		destroy:         false,
-		timedSync:       false,
 		blocks:          NewPool(),
 		n:               n,
 		db:              d,
@@ -48,7 +45,6 @@ func NewScannerXMR(nl *Nodelist, startHeight int32, hash string, n Notifier, d D
 }
 
 func (p *ScannerXMR) Connect() error {
-	p.timedSync = false
 	p.node = p.nodelist.GetRandomNode()
 	p.n.NotifyWithLevel(fmt.Sprintf("Nodes count: %d; Connecting to the node: %s", len(*p.nodelist), p.node), LevelWarning)
 
@@ -67,10 +63,15 @@ func (p *ScannerXMR) Connect() error {
 	p.n.NotifyWithLevel(fmt.Sprintf("Connected to host: %s; Current Height: %d; Peers count: %d", p.node, pl.CurrentHeight, len(pl.GetPeers())), LevelSuccess)
 	p.SetPeers(pl.GetPeers())
 
-	p.n.NotifyWithLevel("Request Timed Sync", LevelSuccess)
-	p.conn.SendRequest(levin.CommandTimedSync, levin.CoreSyncDataPayload(p.lastBlockHeight, p.lastBlockHash))
-
 	p.connected = true
+	// go func() {
+	// 	for p.connected {
+	p.n.NotifyWithLevel("Request Timed Sync", LevelSuccess)
+	p.conn.SendRequest(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
+	// 		time.Sleep(time.Second * 40)
+	// 	}
+	// }()
+
 	return nil
 }
 
@@ -80,27 +81,7 @@ func (p *ScannerXMR) MainLoop() { //3
 	// go p.WriteBlockToDBLoop()
 	go p.KeepConnectionLoop()
 	go p.ReadStreamLoop()
-}
-
-func (p *ScannerXMR) StartSync() {
-	// payload := (&levin.PortableStorage{
-	// 	Entries: []levin.Entry{
-	// 		{
-	// 			Name:         "block_ids",
-	// 			Serializable: levin.BoostStringArray([]string{p.lastBlockHash}),
-	// 		},
-	// 		{
-	// 			Name:         "start_height",
-	// 			Serializable: levin.BoostUint64(uint64(p.lastBlockHeight)),
-	// 		},
-	// 		{
-	// 			Name:         "total_height",
-	// 			Serializable: levin.BoostUint64(uint64(p.lastBlockHeight)),
-	// 		},
-	// 	},
-	// }).Bytes()
-
-	// p.conn.SendRequest(levin.NotifyRequestChain, payload)
+	go p.KeepTimeSync()
 }
 
 /*--- Message Handlers ---*/
@@ -108,6 +89,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	ping := func(header *levin.Header) error {
 		if header.Flags == levin.LevinPacketReponse {
 			if levin.IsValidReturnCode(header.ReturnCode) {
+				// pong := levin.NewPingFromPortableStorage(raw)
 				p.n.NotifyWithLevel("GET PONG WITH SUCCESS", LevelSuccess)
 			} else {
 				p.n.NotifyWithLevel(fmt.Sprintf("GET PONG WITH ERROR::%d", header.ReturnCode), LevelError)
@@ -119,24 +101,22 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		}
 		return nil
 	}
+	_ = ping
 
 	timedsync := func(header *levin.Header, raw *levin.PortableStorage) error {
 		if header.Flags == levin.LevinPacketReponse {
 			if levin.IsValidReturnCode(header.ReturnCode) {
 				p.n.NotifyWithLevel("GET TIMED SYNC RESPONSE SUCCESS", LevelSuccess)
-				p.timedSync = true
 			} else {
 				p.n.NotifyWithLevel(fmt.Sprintf("GET TIMED SYNC RESPONSE ERROR::%d", header.ReturnCode), LevelError)
-				if !p.timedSync {
-					p.Disconnect(errors.New("Not sync timed"))
-				}
 			}
 		} else {
 			p.n.NotifyWithLevel("SEND TIMED SYNC RESPONSE", LevelWarning)
-			p.conn.SendResponse(levin.CommandTimedSync, levin.CoreSyncDataPayload(p.lastBlockHeight, p.lastBlockHash))
+			p.conn.SendResponse(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
 		}
 		return nil
 	}
+	_ = timedsync
 
 	requestchain := func(header *levin.Header, raw *levin.PortableStorage) error {
 		if header.Flags == levin.LevinPacketRequest && header.ExpectsResponse == false {
@@ -155,6 +135,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		}
 		return nil
 	}
+	_ = requestchain
 
 	newblock := func(header *levin.Header, raw *levin.PortableStorage) error {
 		go func() {
@@ -169,25 +150,33 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		}()
 		return nil
 	}
+	_ = newblock
+
+	newtx := func(header *levin.Header, raw *levin.PortableStorage) error {
+		return nil
+	}
+	_ = newtx
 
 	switch header.Command {
 	case levin.CommandPing: // <- DONE
 		return ping(header)
 	case levin.CommandTimedSync: // <- DONE
 		return timedsync(header, raw)
-	
+
+	case levin.NotifyNewTransaction:
+		p.showHeader(header)
+		return nil
+		// return newtx(header, raw)
 	case levin.NotifyRequestChain:
 		p.showHeader(header)
-		if p.timedSync {
-			return requestchain(header, raw)
-		}
 		return nil
-	case levin.NotifyNewFluffyBlock:
-		p.showHeader(header)
-		return newblock(header, raw)
+		// return requestchain(header, raw)
+	// case levin.NotifyNewFluffyBlock:
+	// 	p.showHeader(header)
+	// 	return newblock(header, raw)
 	default:
-		p.showHeader(header)
-		p.n.NotifyWithLevel("Unhandeled message", LevelGray)
+		// p.showHeader(header)
+		p.n.NotifyWithLevel(fmt.Sprintf("Unhandeled message::%d", header.Command), LevelGray)
 		return nil
 	}
 }

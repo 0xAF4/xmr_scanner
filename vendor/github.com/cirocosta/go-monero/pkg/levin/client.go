@@ -158,6 +158,13 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 		return nil, nil, err
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Перехвачена паника:", r)
+			// тут можно логировать, восстанавливать соединение, рестартовать процесс и т.д.
+		}
+	}()
+
 	return respHeader, ps, nil
 }
 
@@ -201,27 +208,5 @@ func (c *Client) SendResponse(Command uint32, payload []byte) error {
 func NilPayload() []byte {
 	return (&PortableStorage{
 		Entries: []Entry{},
-	}).Bytes()
-}
-
-func CoreSyncDataPayload(lastBlockHeight int32, lastBlockHash string) []byte {
-	return (&PortableStorage{
-		Entries: []Entry{
-			{
-				Name: "payload_data",
-				Serializable: &Section{
-					Entries: []Entry{
-						{
-							Name:         "current_height",
-							Serializable: BoostUint64(lastBlockHeight),
-						},
-						{
-							Name:         "top_id",
-							Serializable: BoostString(lastBlockHash),
-						},
-					},
-				},
-			},
-		},
 	}).Bytes()
 }

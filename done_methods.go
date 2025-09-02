@@ -51,6 +51,16 @@ func (p *ScannerXMR) ReadStreamLoop() {
 	}
 }
 
+func (p *ScannerXMR) KeepTimeSync() {
+	for !p.destroy {
+		if p.connected {
+			p.n.NotifyWithLevel("Request Timed Sync", LevelSuccess)
+			p.conn.SendRequest(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
+		}
+		time.Sleep(time.Second * 30)
+	}
+}
+
 func (p *ScannerXMR) KeepConnectionLoop() {
 	for !p.destroy {
 		if !p.connected {
