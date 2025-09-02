@@ -61,7 +61,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Handshake() (*Node, error) {
+func (c *Client) Handshake(Height uint64, Hash string) (*Node, error) {
 	payload := (&PortableStorage{
 		Entries: []Entry{
 			{
@@ -77,12 +77,43 @@ func (c *Client) Handshake() (*Node, error) {
 							Serializable: BoostUint32(0),
 						},
 						{
+							Name:         "rpc_port",
+							Serializable: BoostUint32(0),
+						},
+						{
 							Name:         "peer_id",
 							Serializable: BoostUint64(uint64(time.Now().Unix())),
 						},
 						{
 							Name:         "support_flags",
 							Serializable: BoostUint32(1),
+						},
+					},
+				},
+			},
+			{
+				Name: "payload_data",
+				Serializable: &Section{
+					Entries: []Entry{
+						{
+							Name:         "current_height",
+							Serializable: BoostUint64(Height),
+						},
+						{
+							Name:         "top_id",
+							Serializable: BoostString(Hash),
+						},
+						{
+							Name:         "cumulative_difficulty",
+							Serializable: BoostUint64(505586055224755163),
+						}, //rpc_port, rpc_credits_per_hash
+						{
+							Name:         "cumulative_difficulty_top64",
+							Serializable: BoostUint64(0),
+						},
+						{
+							Name:         "top_version",
+							Serializable: BoostUint32(16),
 						},
 					},
 				},
@@ -128,6 +159,30 @@ again:
 	if err != nil {
 		return nil, fmt.Errorf("new portable storage from bytes: %w", err)
 	}
+
+	// for _, p := range ps.Entries {
+	// 	fmt.Println("Name", p.Name)
+	// 	if p.Name == "payload_data" {
+	// 		for _, e := range p.Entries() {
+	// 			fmt.Println("----")
+	// 			fmt.Println("Name", e.Name)
+	// 			switch e.Name {
+	// 			case "cumulative_difficulty":
+	// 				fmt.Println("val:", e.Uint64())
+	// 			case "cumulative_difficulty_top64":
+	// 				fmt.Println("val:", e.Uint64())
+	// 			case "current_height":
+	// 				fmt.Println("val:", e.Uint64())
+	// 			case "top_id":
+	// 				fmt.Println("val:", e.String())
+	// 			case "top_version":
+	// 				fmt.Println("val:", e.Uint8())
+	// 			default:
+	// 				fmt.Println("def name", e.Name)
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	peerList := NewNodeFromEntries(ps.Entries)
 	return &peerList, nil

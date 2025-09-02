@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cirocosta/go-monero/pkg/levin"
+	"xmr_scanner/levin"
 )
 
 type ScannerXMR struct {
@@ -28,6 +28,14 @@ type ScannerXMR struct {
 	chainName string
 }
 
+const (
+	LevelInfo    = "🔵INFO🔵"
+	LevelSuccess = "🟢SUCCESS🟢"
+	LevelWarning = "🟡WARNING🟡"
+	LevelError   = "🔴ERROR🔴"
+	LevelGray    = "⚫INFO⚫"
+)
+
 /*--- Basic Methods ---*/
 func NewScannerXMR(nl *Nodelist, startHeight int32, hash string, n Notifier, d DBWrapper, c string) *ScannerXMR { //1
 	return &ScannerXMR{
@@ -44,6 +52,10 @@ func NewScannerXMR(nl *Nodelist, startHeight int32, hash string, n Notifier, d D
 	}
 }
 
+func (p *ScannerXMR) Close() {
+	p.destroy = true
+}
+
 func (p *ScannerXMR) Connect() error {
 	p.node = p.nodelist.GetRandomNode()
 	p.n.NotifyWithLevel(fmt.Sprintf("Nodes count: %d; Connecting to the node: %s", len(*p.nodelist), p.node), LevelWarning)
@@ -55,7 +67,7 @@ func (p *ScannerXMR) Connect() error {
 	}
 	p.conn = conn
 
-	pl, err := p.conn.Handshake()
+	pl, err := p.conn.Handshake(uint64(p.lastBlockHeight), p.lastBlockHash)
 	if err != nil {
 		p.n.NotifyWithLevel("Handshake error: "+err.Error(), LevelError)
 		return err
@@ -64,24 +76,50 @@ func (p *ScannerXMR) Connect() error {
 	p.SetPeers(pl.GetPeers())
 
 	p.connected = true
-	// go func() {
-	// 	for p.connected {
 	p.n.NotifyWithLevel("Request Timed Sync", LevelSuccess)
 	p.conn.SendRequest(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
-	// 		time.Sleep(time.Second * 40)
-	// 	}
+
+	// go func() {
+	// 	time.Sleep(time.Second * 3)
+	// 	p.conn.SendRequest(levin.NotifyRequestGetObjects, GetBlock())
 	// }()
 
 	return nil
 }
 
-/*--- Loop Methods ---*/
-func (p *ScannerXMR) MainLoop() { //3
-	// go p.GetBlockDataLoop()
-	// go p.WriteBlockToDBLoop()
-	go p.KeepConnectionLoop()
-	go p.ReadStreamLoop()
-	go p.KeepTimeSync()
+func (p *ScannerXMR) Disconnect(err error) {
+	if p.conn != nil {
+		p.conn.Close()
+		p.connected = false
+		p.n.NotifyWithLevel(fmt.Sprintf("Disconnected from node: %s", p.node), LevelError)
+		if err != nil {
+			p.n.NotifyWithLevel(fmt.Sprintf("Disconnect Error: %s", err.Error()), LevelError)
+		}
+	}
+}
+
+
+
+
+func (p *ScannerXMR) SetPeers(pers map[string]*levin.Peer) {
+	var list Nodelist
+	for _, node := range pers {
+		list = append(list, fmt.Sprintf("%s:%d", node.Ip, node.Port))
+	}
+	p.nodelist = &list
+}
+
+
+
+func GetBlock() []byte {
+	return (&levin.PortableStorage{
+		Entries: []levin.Entry{
+			{
+				Name:         "blocks",
+				Serializable: levin.BoostString(" 1a572331ddfa81b42de7d41e662b84a9595b487c24e5243943129b84e4f91706"),
+			},
+		},
+	}).Bytes()
 }
 
 /*--- Message Handlers ---*/
@@ -177,6 +215,53 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	default:
 		// p.showHeader(header)
 		p.n.NotifyWithLevel(fmt.Sprintf("Unhandeled message::%d", header.Command), LevelGray)
+		p.showHeader(header)
 		return nil
+	}
+}
+
+/*--- Loop Methods ---*/
+func (p *ScannerXMR) MainLoop() { //3
+	// go p.GetBlockDataLoop()
+	// go p.WriteBlockToDBLoop()
+	go p.KeepConnectionLoop()
+	go p.ReadStreamLoop()
+	go p.KeepTimeSync()
+}
+
+func (p *ScannerXMR) KeepConnectionLoop() {
+	for !p.destroy {
+		if !p.connected {
+			p.Connect()
+		} else {
+			time.Sleep(time.Second * 5)
+		}
+	}
+
+	if p.destroy {
+		p.conn.Close()
+	}
+}
+
+func (p *ScannerXMR) ReadStreamLoop() {
+	for !p.destroy {
+		if p.connected {
+			if header, raw, err := p.conn.ReadMessage(); err != nil {
+				p.Disconnect(err)
+			} else {
+				p.handleMessage(header, raw)
+			}
+		}
+		time.Sleep(time.Millisecond * 200)
+	}
+}
+
+func (p *ScannerXMR) KeepTimeSync() {
+	for !p.destroy {
+		if p.connected {
+			p.n.NotifyWithLevel("Request Timed Sync", LevelSuccess)
+			p.conn.SendRequest(levin.CommandTimedSync, levin.NewRequestTimedSync(uint64(p.lastBlockHeight), p.lastBlockHash).Bytes())
+		}
+		time.Sleep(time.Second * 30)
 	}
 }

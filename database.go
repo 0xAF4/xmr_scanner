@@ -11,18 +11,6 @@ type Nodelist []string
 
 func (d *DatabaseMock) GetNodeAddrs(coin string) (*Nodelist, error) {
 	nodelist := &Nodelist{
-		// "seeds.moneroseeds.se:18080",
-		// "seeds.moneroseeds.ae.org:18080",
-		// "seeds.moneroseeds.ch:18080",
-		// "seeds.moneroseeds.li:18080",
-		// "node.moneroworld.com:18089",
-		// "node.xmrbackb.one:18089",
-		// "xmr-node.cryptonote.social:18089",
-		// "xmr-node.sexy:18089",
-		// "opennode.xmr-tw.org:18089", //
-		// "node.xmrpool.eu:18089",
-		// "node.xmrpool.net:18089",
-		//Peers
 		"66.85.74.134:18080",
 
 		"176.97.119.152:18080",

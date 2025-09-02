@@ -8,13 +8,6 @@ import (
 
 type NotifierMock struct{}
 
-type Tx struct {
-	TxId    string
-	Vout    int
-	Address string
-	Balance float64
-}
-
 func (n *NotifierMock) NotifyWithLevel(message string, level string) error {
 	timestamp := time.Now().Format("15:04:05 02.01.2006")
 	fmt.Println("[" + timestamp + "] [NOTIFY] " + level + ": " + message)
@@ -27,7 +20,7 @@ var (
 	DBMock  = &DatabaseMock{}
 )
 
-func main() {
+func main2() {
 	scanner, err := New(coin, BotMock, DBMock)
 	if err != nil {
 		log.Fatalf("ERROR Scanner(%s): %v", coin, err)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cirocosta/go-monero/pkg/levin"
+	"xmr_scanner/levin"
 )
 
 func (p *ScannerXMR) WriteBlockToDBLoop() {
@@ -65,7 +65,6 @@ func (p *ScannerXMR) GetBlockDataLoop() {
 		})
 	}
 }
-
 
 func (p *ScannerXMR) showHeader(header *levin.Header) {
 	p.n.NotifyWithLevel(fmt.Sprintf("Message received:"), LevelInfo)
