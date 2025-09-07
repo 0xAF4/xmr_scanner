@@ -49,12 +49,24 @@ func (r *RequestTimedSync) Bytes() []byte {
 				Serializable: &Section{
 					Entries: []Entry{
 						{
+							Name:         "cumulative_difficulty",
+							Serializable: BoostUint64(CumulativeDifficulty),
+						},
+						{
+							Name:         "cumulative_difficulty_top64",
+							Serializable: BoostUint64(CumulativeDifficultyTop64),
+						},
+						{
 							Name:         "current_height",
 							Serializable: BoostUint64(r.PayloadData.CurrentHeight),
 						},
 						{
 							Name:         "top_id",
-							Serializable: BoostString(r.PayloadData.TopId),
+							Serializable: BoostHash(r.PayloadData.TopId),
+						},
+						{
+							Name:         "top_version",
+							Serializable: BoostUint8(TopVersion),
 						},
 					},
 				},

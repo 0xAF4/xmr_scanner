@@ -3,6 +3,7 @@ package levin
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -61,7 +62,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Handshake(Height uint64, Hash string) (*Node, error) {
+func (c *Client) Handshake(Height uint64, Hash string, peer_id uint64) (*Node, error) {
 	payload := (&PortableStorage{
 		Entries: []Entry{
 			{
@@ -74,19 +75,15 @@ func (c *Client) Handshake(Height uint64, Hash string) (*Node, error) {
 						},
 						{
 							Name:         "my_port",
-							Serializable: BoostUint32(0),
-						},
-						{
-							Name:         "rpc_port",
-							Serializable: BoostUint32(0),
+							Serializable: BoostUint32(MyPort),
 						},
 						{
 							Name:         "peer_id",
-							Serializable: BoostUint64(uint64(time.Now().Unix())),
+							Serializable: BoostUint64(peer_id),
 						},
 						{
 							Name:         "support_flags",
-							Serializable: BoostUint32(1),
+							Serializable: BoostUint32(SupportFlags),
 						},
 					},
 				},
@@ -96,24 +93,24 @@ func (c *Client) Handshake(Height uint64, Hash string) (*Node, error) {
 				Serializable: &Section{
 					Entries: []Entry{
 						{
+							Name:         "cumulative_difficulty",
+							Serializable: BoostUint64(CumulativeDifficulty),
+						},
+						{
+							Name:         "cumulative_difficulty_top64",
+							Serializable: BoostUint64(CumulativeDifficultyTop64),
+						},
+						{
 							Name:         "current_height",
 							Serializable: BoostUint64(Height),
 						},
 						{
 							Name:         "top_id",
-							Serializable: BoostString(Hash),
-						},
-						{
-							Name:         "cumulative_difficulty",
-							Serializable: BoostUint64(505586055224755163),
-						}, //rpc_port, rpc_credits_per_hash
-						{
-							Name:         "cumulative_difficulty_top64",
-							Serializable: BoostUint64(0),
+							Serializable: BoostHash(Hash),
 						},
 						{
 							Name:         "top_version",
-							Serializable: BoostUint32(16),
+							Serializable: BoostUint8(TopVersion),
 						},
 					},
 				},
@@ -191,12 +188,12 @@ again:
 func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 	responseHeaderB := make([]byte, LevinHeaderSizeBytes)
 	if _, err := io.ReadFull(c.conn, responseHeaderB); err != nil {
-		return nil, nil, err
+		return nil, nil, errors.New("1:" + err.Error())
 	}
 
 	respHeader, err := NewHeaderFromBytesBytes(responseHeaderB)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.New("2:" + err.Error())
 	}
 
 	if respHeader.Length == 0 {
@@ -205,20 +202,13 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 
 	responseBodyB := make([]byte, respHeader.Length)
 	if _, err := io.ReadFull(c.conn, responseBodyB); err != nil {
-		return nil, nil, err
+		return nil, nil, errors.New("3:" + err.Error())
 	}
 
 	ps, err := NewPortableStorageFromBytes(responseBodyB)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.New("4:" + err.Error())
 	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Println("Перехвачена паника:", r)
-			// тут можно логировать, восстанавливать соединение, рестартовать процесс и т.д.
-		}
-	}()
 
 	return respHeader, ps, nil
 }
@@ -227,6 +217,9 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 func (c *Client) SendRequest(Command uint32, payload []byte) error {
 	len := uint64(len(payload))
 	reqHeaderB := NewRequestHeader(Command, len)
+	if Command == NotifyRequestChain {
+		reqHeaderB.ExpectsResponse = false
+	}
 
 	if _, err := c.conn.Write(reqHeaderB.Bytes()); err != nil {
 		return fmt.Errorf("write header: %w", err)

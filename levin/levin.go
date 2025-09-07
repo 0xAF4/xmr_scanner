@@ -60,6 +60,16 @@ const (
 	NotifyRequestFluffyMissing uint32 = 2009 // Запрос недостающих tx для fluffy-блока
 )
 
+const (
+	/*--- OTHER CONSTANTS ---*/
+	TopVersion                uint8  = 16
+	CumulativeDifficultyTop64 uint64 = 0
+	CumulativeDifficulty      uint64 = 1559285794759
+	SupportFlags              uint32 = 1
+	MyPort                    uint32 = 18080
+	HASH_SIZE                        = 32
+)
+
 var (
 	MainnetNetworkId = []byte{
 		0x12, 0x30, 0xf1, 0x71,

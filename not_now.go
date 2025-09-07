@@ -107,7 +107,7 @@ func ProcessBlockIds(value interface{}) ([]string, error) {
 		hash := bytes[start:end]
 
 		// Конвертируем в hex строку
-		blockIds[i] = hex.EncodeToString(hash)		
+		blockIds[i] = hex.EncodeToString(hash)
 	}
 
 	return blockIds, nil

@@ -53,6 +53,19 @@ func (p *Pool) Range(iterate func(key string, value *Block) bool) {
 	}
 }
 
+func (p *Pool) Count() int {
+	return len(p.chain)
+}
+
+func (p *Pool) SetSendedFalse() {
+	for key, value := range p.chain {
+		if !value.received {
+			value.sended = false
+			p.chain[key] = value
+		}
+	}
+}
+
 func (b *Block) GetChainName() string {
 	return b.chainName
 }
