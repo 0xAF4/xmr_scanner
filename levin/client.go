@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"time"
 )
 
@@ -217,7 +218,7 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 func (c *Client) SendRequest(Command uint32, payload []byte) error {
 	len := uint64(len(payload))
 	reqHeaderB := NewRequestHeader(Command, len)
-	if Command == NotifyRequestChain {
+	if slices.Contains([]uint32{NotifyRequestChain, NotifyRequestGetObjects}, Command) {
 		reqHeaderB.ExpectsResponse = false
 	}
 

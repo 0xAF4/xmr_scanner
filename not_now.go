@@ -45,26 +45,7 @@ func (p *ScannerXMR) WriteBlockToDBLoop() {
 	}
 }
 
-func (p *ScannerXMR) GetBlockDataLoop() {
-	for !p.destroy {
-		time.Sleep(time.Second * 1)
-		p.blocks.Range(func(key string, value *Block) bool {
-			if !value.sended && p.connected {
-				var err error
-				if err = p.requestBlockData(key); err == nil {
-					value.sended = true
-				}
-				if err != nil {
-					p.Disconnect(nil)
-					p.n.NotifyWithLevel("1 Request block data error: "+key+"; err: "+err.Error(), LevelError)
-				} else {
-					p.n.NotifyWithLevel("R:"+key, LevelSuccess)
-				}
-			}
-			return true
-		})
-	}
-}
+
 
 func (p *ScannerXMR) showHeader(header *levin.Header) {
 	p.n.NotifyWithLevel(fmt.Sprintf("Message received:"), LevelInfo)

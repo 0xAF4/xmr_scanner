@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -155,6 +156,7 @@ func (p *ScannerXMR) Connect() error {
 					matches := re.FindStringSubmatch(*html)
 
 					if len(matches) >= 2 {
+						p.n.NotifyWithLevel(fmt.Sprintf("Set hash for key: %d", key), LevelSuccess)
 						p.lashBlockHashArr[key] = matches[1]
 					} else {
 						errs += 1
@@ -169,9 +171,9 @@ func (p *ScannerXMR) Connect() error {
 			goto repeat
 		} else {
 			p.n.NotifyWithLevel("Все хэши были получены", LevelSuccess)
-			for key, val := range p.lashBlockHashArr {
-				fmt.Println("Key:", key, "Val:", val)
-			}
+			// for key, val := range p.lashBlockHashArr {
+			// 	fmt.Println("Key:", key, "Val:", val)
+			// }
 		}
 	}
 
@@ -267,7 +269,6 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		}
 		return nil
 	}
-	_ = ping
 
 	timedsync := func(header *levin.Header, raw *levin.PortableStorage) error {
 		if header.Flags == levin.LevinPacketReponse {
@@ -282,65 +283,48 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		}
 		return nil
 	}
-	_ = timedsync
 
-	requestchain := func(header *levin.Header, raw *levin.PortableStorage) error {
-		if header.Flags == levin.LevinPacketRequest && header.ExpectsResponse == false {
-			p.n.NotifyWithLevel("Request chain", LevelSuccess)
-			for _, entry := range raw.Entries {
-				p.n.NotifyWithLevel("	- Entry Name: "+entry.Name, LevelSuccess)
-				if entry.Name == "block_ids" {
-					if hashes, err := ProcessBlockIds(entry.Value); err == nil {
-						for _, hash := range hashes {
-							_ = hash
-							p.n.NotifyWithLevel("		- Hash str: "+hash, LevelSuccess)
+	processqueue := func(header *levin.Header, raw *levin.PortableStorage) error {
+		for _, entry := range raw.Entries {
+			if entry.Name == "m_block_ids" {
+				if hashes, err := ProcessBlockIds(entry.Value); err == nil {
+					previosHash := p.lastBlockHash
+					for _, hash := range hashes {
+						if hash == p.lastBlockHash {
+							continue
 						}
+						b := Block{
+							sended:       false,
+							received:     false,
+							Hash:         hash,
+							PreviousHash: previosHash,
+						}
+						p.blocks.Add(hash, &b)
+						previosHash = hash
+						p.n.NotifyWithLevel(fmt.Sprintf("Block Hash: %s, Previous Hash: %s", b.Hash, b.PreviousHash), LevelSuccess)
+
 					}
 				}
-				p.n.NotifyWithLevel("	- Entry Name: "+entry.Name, LevelSuccess)
 			}
 		}
 		return nil
 	}
-	_ = requestchain
 
-	newblock := func(header *levin.Header, raw *levin.PortableStorage) error {
-		go func() {
-			for _, entry := range raw.Entries {
-				p.n.NotifyWithLevel(" -- Entry: "+entry.Name, LevelSuccess)
-				if entry.Name == "b" {
-					// block blob here
-				} else if entry.Name == "current_blockchain_height" {
-					p.n.NotifyWithLevel(fmt.Sprintf("Current Blockchain Height: %d", entry.Uint64()), LevelSuccess)
-				}
-			}
-		}()
+	processblocks := func(header *levin.Header, raw *levin.PortableStorage) error {
+		//TODO: Надо написать обработку блоков
 		return nil
 	}
-	_ = newblock
-
-	newtx := func(header *levin.Header, raw *levin.PortableStorage) error {
-		return nil
-	}
-	_ = newtx
 
 	switch header.Command {
 	case levin.CommandPing: // <- DONE
 		return ping(header)
 	case levin.CommandTimedSync: // <- DONE
 		return timedsync(header, raw)
-	case levin.NotifyRequestChain:
-		p.showHeader(header)
-		return requestchain(header, raw)
-	case levin.NotifyResponseChainEntry:
-		p.showHeader(header)
-		return nil
-
-		// p.showHeader(header)
-	// case levin.NotifyNewFluffyBlock:
-	// 	return newblock(header, raw)
+	case levin.NotifyResponseChainEntry: // <- DONE
+		return processqueue(header, raw)
+	case levin.NotifyResponseGetObjects:
+		return processblocks(header, raw)
 	default:
-		// p.showHeader(header)
 		p.n.NotifyWithLevel(fmt.Sprintf("Unhandeled message::%d", header.Command), LevelGray)
 		p.showHeader(header)
 		return nil
@@ -349,7 +333,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 
 /*--- Loop Methods ---*/
 func (p *ScannerXMR) MainLoop() { //3
-	// go p.GetBlockDataLoop()
+	go p.GetBlockDataLoop()
 	// go p.WriteBlockToDBLoop()
 	go p.KeepConnectionLoop()
 	go p.ReadStreamLoop()
@@ -425,4 +409,71 @@ func (p *ScannerXMR) SendRequestChain() {
 	}).Bytes()
 
 	p.conn.SendRequest(levin.NotifyRequestChain, balbik)
+}
+
+const packetsize = 10 // 100
+
+func (p *ScannerXMR) GetBlockDataLoop() {
+	for !p.destroy {
+		time.Sleep(time.Second * 3)
+		if p.blocks.Count() == 0 {
+			continue
+		}
+
+		//TODO: По идее надо собирать пакеты по сто блоков и так их отрпавлять
+		lst := make(map[string]string)
+		prevHash := p.lastBlockHash
+		blocks := []string{}
+
+		p.blocks.Range(func(key string, value *Block) bool {
+			if !value.sended {
+				lst[value.PreviousHash] = key
+			}
+			return true
+		})
+
+		for i := 0; i < packetsize; i++ {
+			val := lst[prevHash]
+			if val == "" {
+				break
+			}
+			blocks = append(blocks, val)
+			prevHash = val
+		}
+
+		if len(blocks) == 0 {
+			continue
+		}
+
+		for i, val := range blocks {
+			p.n.NotifyWithLevel(fmt.Sprintf("I: %d, val: %s", i, val), LevelGray)
+		}
+
+		p.n.NotifyWithLevel("RequestBlocks", LevelSuccess)
+		bulbik := (&levin.PortableStorage{
+			Entries: []levin.Entry{
+				{
+					Name:         "blocks",
+					Serializable: levin.BoostBlock(blocks),
+				},
+			},
+		}).Bytes()
+
+		err := p.conn.SendRequest(levin.NotifyRequestGetObjects, bulbik)
+		if err == nil {
+			incblocks := 0
+			p.blocks.Range(func(key string, value *Block) bool {
+				if slices.Contains(blocks, key) {
+					value.sended = true
+					incblocks += 1
+				}
+
+				if incblocks == packetsize {
+					return false
+				}
+				return true
+			})
+		}
+
+	}
 }

@@ -19,3 +19,46 @@ func (p *ScannerXMR) SendNotifyRequestChain() {
 		time.Sleep(time.Second * 10)
 	}
 }
+
+
+	requestchain := func(header *levin.Header, raw *levin.PortableStorage) error {
+		if header.Flags == levin.LevinPacketRequest && header.ExpectsResponse == false {
+			p.n.NotifyWithLevel("Request chain", LevelSuccess)
+			for _, entry := range raw.Entries {
+				p.n.NotifyWithLevel("	- Entry Name: "+entry.Name, LevelSuccess)
+				if entry.Name == "block_ids" {
+					if hashes, err := ProcessBlockIds(entry.Value); err == nil {
+						for _, hash := range hashes {
+							_ = hash
+							p.n.NotifyWithLevel("		- Hash str: "+hash, LevelSuccess)
+						}
+					}
+				}
+				p.n.NotifyWithLevel("	- Entry Name: "+entry.Name, LevelSuccess)
+			}
+		}
+		return nil
+	}
+	_ = requestchain
+
+
+		newtx := func(header *levin.Header, raw *levin.PortableStorage) error {
+		return nil
+	}
+	_ = newtx
+
+
+		newblock := func(header *levin.Header, raw *levin.PortableStorage) error {
+		go func() {
+			for _, entry := range raw.Entries {
+				p.n.NotifyWithLevel(" -- Entry: "+entry.Name, LevelSuccess)
+				if entry.Name == "b" {
+					// block blob here
+				} else if entry.Name == "current_blockchain_height" {
+					p.n.NotifyWithLevel(fmt.Sprintf("Current Blockchain Height: %d", entry.Uint64()), LevelSuccess)
+				}
+			}
+		}()
+		return nil
+	}
+	_ = newblock
