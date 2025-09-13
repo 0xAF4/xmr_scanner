@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -12,20 +13,29 @@ type NotifierMock struct{}
 var timeForFilename = time.Now().Format("15-04-05_02.01.2006") // ЧЧ-ММ-СС_ДД.ММ.ГГГГ
 
 func (n *NotifierMock) NotifyWithLevel(message string, level string) error {
-	// Форматируем временнУю метку
+	// Форматируем временную метку
 	timestamp := time.Now().Format("15:04:05 02.01.2006")
 	logEntry := "[" + timestamp + "] [NOTIFY] " + level + ": " + message
 
 	// Выводим в консоль
 	fmt.Println(logEntry)
 
-	// Записываем в файл
+	// Убедимся, что директория logs существует
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create log directory: %v\n", err)
+		return err
+	}
+
+	// Формируем путь к файлу в logs
 	filename := fmt.Sprintf("notification_%s.log", timeForFilename)
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	filepath := filepath.Join(logDir, filename)
+
+	// Открываем файл
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		// Если не удалось открыть файл, хотя бы выведем ошибку в консоль
 		fmt.Fprintf(os.Stderr, "Failed to open log file: %v\n", err)
-		return nil
+		return err
 	}
 	defer file.Close()
 
@@ -42,7 +52,7 @@ var (
 	DBMock  = &DatabaseMock{}
 )
 
-func main() {
+func main2() {
 	scanner, err := New(coin, BotMock, DBMock)
 	if err != nil {
 		log.Fatalf("ERROR Scanner(%s): %v", coin, err)

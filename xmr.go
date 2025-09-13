@@ -311,7 +311,28 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	}
 
 	processblocks := func(header *levin.Header, raw *levin.PortableStorage) error {
-		//TODO: Надо написать обработку блоков
+		for _, entry := range raw.Entries {
+			if entry.Name == "blocks" {
+				for _, blk := range entry.Entries() {
+					_block := &ProcessingBlock{}
+					for _, ibl := range blk.Entries() {
+						if ibl.Name == "block" {
+							_block.block = ibl.Bytes()
+						} else {
+							for _, itx := range ibl.Entries() {
+								_ = itx
+								_block.TXs = append(_block.TXs, nil)
+							}
+						}
+					}
+					p.n.NotifyWithLevel(fmt.Sprintf("block len: %d", len(_block.block)), LevelSuccess)
+					for _, tx := range _block.TXs {
+						p.n.NotifyWithLevel(fmt.Sprintf(" - tx len: %d", len(tx.Raw)), LevelSuccess)
+					}
+					p.n.NotifyWithLevel("=====", LevelSuccess)
+				}
+			}
+		}
 		return nil
 	}
 

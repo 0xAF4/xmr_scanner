@@ -123,7 +123,6 @@ func (v BoostHash) Bytes() []byte {
 	return result
 }
 
-type BoostBlock []string
 type BoostBlockIds []string
 
 func (blockIds BoostBlockIds) Bytes() []byte {
@@ -160,6 +159,8 @@ func (blockIds BoostBlockIds) Bytes() []byte {
 
 	return result
 }
+
+type BoostBlock []string
 
 func (blockIds BoostBlock) Bytes() []byte {
 	if len(blockIds) == 0 {

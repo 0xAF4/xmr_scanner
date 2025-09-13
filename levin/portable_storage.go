@@ -78,7 +78,111 @@ func (e Entry) Entries() Entries {
 }
 
 func (e Entry) Bytes() []byte {
-	return nil
+	if e.Serializable != nil {
+		return e.Serializable.Bytes()
+	}
+
+	// Determine type and serialize value
+	switch v := e.Value.(type) {
+	case uint8:
+		return append([]byte{BoostSerializeTypeUint8}, v)
+
+	case uint16:
+		result := []byte{BoostSerializeTypeUint16}
+		b := make([]byte, 2)
+		binary.LittleEndian.PutUint16(b, v)
+		return append(result, b...)
+
+	case uint32:
+		result := []byte{BoostSerializeTypeUint32}
+		b := make([]byte, 4)
+		binary.LittleEndian.PutUint32(b, v)
+		return append(result, b...)
+
+	case uint64:
+		result := []byte{BoostSerializeTypeUint64}
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, v)
+		return append(result, b...)
+
+	case int64:
+		result := []byte{BoostSerializeTypeInt64}
+		b := make([]byte, 8)
+		binary.LittleEndian.PutUint64(b, uint64(v))
+		return append(result, b...)
+
+	case string:
+		result := []byte{BoostSerializeTypeString}
+		varInB, err := VarIn(len(v))
+		if err != nil {
+			panic(fmt.Errorf("varin for string length: %w", err))
+		}
+		result = append(result, varInB...)
+		result = append(result, []byte(v)...)
+		return result
+
+	case Entries:
+		result := []byte{BoostSerializeTypeObject}
+		varInB, err := VarIn(len(v))
+		if err != nil {
+			panic(fmt.Errorf("varin for entries length: %w", err))
+		}
+		result = append(result, varInB...)
+		for _, entry := range v {
+			result = append(result, byte(len(entry.Name)))
+			result = append(result, []byte(entry.Name)...)
+			result = append(result, entry.Bytes()...)
+		}
+		return result
+
+	default:
+		// Check if it's an array by looking at type
+		if entries, ok := v.(Entries); ok {
+			// Determine array element type based on first element
+			if len(entries) == 0 {
+				panic(fmt.Errorf("cannot serialize empty array - unknown element type"))
+			}
+
+			var elementType byte
+			switch entries[0].Value.(type) {
+			case uint8:
+				elementType = BoostSerializeTypeUint8
+			case uint16:
+				elementType = BoostSerializeTypeUint16
+			case uint32:
+				elementType = BoostSerializeTypeUint32
+			case uint64:
+				elementType = BoostSerializeTypeUint64
+			case int64:
+				elementType = BoostSerializeTypeInt64
+			case string:
+				elementType = BoostSerializeTypeString
+			case Entries:
+				elementType = BoostSerializeTypeObject
+			default:
+				panic(fmt.Errorf("unsupported array element type: %T", entries[0].Value))
+			}
+
+			result := []byte{elementType | BoostSerializeFlagArray}
+			varInB, err := VarIn(len(entries))
+			if err != nil {
+				panic(fmt.Errorf("varin for array length: %w", err))
+			}
+			result = append(result, varInB...)
+
+			for _, entry := range entries {
+				// For arrays, we don't include the type byte for each element
+				valueBytes := entry.Bytes()
+				// Skip the first byte (type) since it's already specified in array header
+				if len(valueBytes) > 1 {
+					result = append(result, valueBytes[1:]...)
+				}
+			}
+			return result
+		}
+
+		panic(fmt.Errorf("unsupported value type: %T", v))
+	}
 }
 
 type Entries []Entry
@@ -274,7 +378,6 @@ func ReadAny(bytes []byte, ttype byte) (int, interface{}) {
 
 // reads var int, returning number of bytes read and the integer in that byte
 // sequence.
-//
 func ReadVarInt(b []byte) (int, int) {
 	sizeMask := b[0] & PortableRawSizeMarkMask
 

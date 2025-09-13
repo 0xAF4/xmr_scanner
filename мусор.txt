@@ -62,3 +62,197 @@ func (p *ScannerXMR) SendNotifyRequestChain() {
 		return nil
 	}
 	_ = newblock
+
+
+func (block *ProcessingBlock) parseMinerTransaction(reader *bytes.Reader) error {
+	// Читаем version транзакции (varint)
+	version, err := readVarint(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read tx version: %v", err)
+	}
+	block.MinerTx.Version = version
+
+	// Читаем unlock_time (varint)
+	unlockTime, err := readVarint(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read unlock_time: %v", err)
+	}
+	block.MinerTx.UnlockTime = unlockTime
+
+	// Читаем количество входов (varint)
+	inputCount, err := readVarint(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read input count: %v", err)
+	}
+
+	// Парсим входы
+	block.MinerTx.Inputs = make([]TxInput, inputCount)
+	for i := uint64(0); i < inputCount; i++ {
+		// Читаем тип входа
+		inputType, err := reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("failed to read input type: %v", err)
+		}
+		block.MinerTx.Inputs[i].Type = inputType
+
+		if inputType == 0xFF { // Coinbase input
+			// Читаем высоту блока
+			height, err := readVarint(reader)
+			if err != nil {
+				return fmt.Errorf("failed to read block height: %v", err)
+			}
+			block.MinerTx.Inputs[i].Height = height
+			block.BlockHeight = height
+		}
+	}
+
+	// Читаем количество выходов (varint)
+	outputCount, err := readVarint(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read output count: %v", err)
+	}
+
+	// Парсим выходы
+	block.MinerTx.Outputs = make([]TxOutput, outputCount)
+	for i := uint64(0); i < outputCount; i++ {
+		// Читаем сумму (varint)
+		amount, err := readVarint(reader)
+		if err != nil {
+			return fmt.Errorf("failed to read output amount: %v", err)
+		}
+		block.MinerTx.Outputs[i].Amount = amount
+
+		// Читаем тип цели
+		targetType, err := reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("failed to read target type: %v", err)
+		}
+
+		// В зависимости от типа цели читаем разное количество данных
+		var targetSize int
+		switch targetType {
+		case 0x02: // txout_to_key
+			targetSize = 32 // Публичный ключ
+		default:
+			targetSize = 32 // По умолчанию 32 байта
+		}
+
+		target := make([]byte, targetSize)
+		_, err = reader.Read(target)
+		if err != nil {
+			return fmt.Errorf("failed to read target: %v", err)
+		}
+		block.MinerTx.Outputs[i].Target = target
+	}
+
+	// Читаем размер extra поля (varint)
+	extraSize, err := readVarint(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read extra size: %v", err)
+	}
+
+	// Читаем extra данные
+	if extraSize > 0 {
+		block.MinerTx.Extra = make([]byte, extraSize)
+		_, err = reader.Read(block.MinerTx.Extra)
+		if err != nil {
+			return fmt.Errorf("failed to read extra data: %v", err)
+		}
+
+		// Извлекаем difficulty из extra поля
+		block.extractDifficultyFromExtra()
+	}
+
+	// Вычисляем хеш miner transaction
+	block.calculateMinerTxHash()
+
+	return nil
+}
+
+func (block *ProcessingBlock) extractDifficultyFromExtra() {
+	// Парсим extra поля для поиска difficulty
+	extra := block.MinerTx.Extra
+	pos := 0
+
+	for pos < len(extra) {
+		if pos >= len(extra) {
+			break
+		}
+
+		tag := extra[pos]
+		pos++
+
+		switch tag {
+		case 0x01: // TX_EXTRA_TAG_PUBKEY
+			if pos+32 <= len(extra) {
+				pos += 32 // Пропускаем публичный ключ
+			}
+		case 0x02: // TX_EXTRA_NONCE
+			if pos < len(extra) {
+				nonceSize := int(extra[pos])
+				pos++
+				if pos+nonceSize <= len(extra) {
+					// Здесь может быть закодирован difficulty
+					nonceData := extra[pos : pos+nonceSize]
+					if len(nonceData) >= 8 {
+						// Пытаемся извлечь difficulty как uint64
+						if len(nonceData) >= 8 {
+							block.Difficulty = binary.LittleEndian.Uint64(nonceData[:8])
+						}
+						if len(nonceData) >= 16 {
+							block.CumulativeDiff = binary.LittleEndian.Uint64(nonceData[8:16])
+						}
+					}
+					pos += nonceSize
+				}
+			}
+		case 0x03: // TX_EXTRA_MERGE_MINING_TAG
+			if pos+32 <= len(extra) {
+				pos += 32
+			}
+		default:
+			// Неизвестный тег, пропускаем один байт
+			if pos < len(extra) {
+				pos++
+			}
+		}
+	}
+
+	// Если не удалось извлечь из extra, устанавливаем базовые значения
+	if block.Difficulty == 0 {
+		// Вычисляем примерную difficulty на основе высоты блока
+		block.Difficulty = calculateApproximateDifficulty(block.BlockHeight)
+		block.CumulativeDiff = block.Difficulty * block.BlockHeight // Упрощенный расчет
+	}
+}
+
+func (block *ProcessingBlock) calculateMinerTxHash() {
+	if len(block.MinerTx.Raw) > 0 {
+		h := keccak256(block.MinerTx.Raw)
+		copy(block.MinerTx.Hash[:], h[:])
+		return
+	}
+
+	// fallback: старый способ (менее надёжный)
+	var txData bytes.Buffer
+	writeVarint(&txData, block.MinerTx.Version)
+	writeVarint(&txData, block.MinerTx.UnlockTime)
+	writeVarint(&txData, uint64(len(block.MinerTx.Inputs)))
+	for _, input := range block.MinerTx.Inputs {
+		txData.WriteByte(input.Type)
+		if input.Type == 0xFF {
+			writeVarint(&txData, input.Height)
+		}
+	}
+	writeVarint(&txData, uint64(len(block.MinerTx.Outputs)))
+	for _, output := range block.MinerTx.Outputs {
+		writeVarint(&txData, output.Amount)
+		txData.WriteByte(0x02)
+		txData.Write(output.Target)
+	}
+	writeVarint(&txData, uint64(len(block.MinerTx.Extra)))
+	txData.Write(block.MinerTx.Extra)
+
+	h := keccak256(txData.Bytes())
+	copy(block.MinerTx.Hash[:], h[:])
+}
