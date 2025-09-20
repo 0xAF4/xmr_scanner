@@ -33,22 +33,31 @@ type MinerTransaction struct {
 	Height     uint64
 	OutputNum  uint64
 	Outs       []TxOutput
-	ExtraSize  uint64
+	ExtraSize  uint8
 	Extra      []byte
 }
 
 type Transaction struct {
-	Hash    [32]byte
-	Raw     []byte
-	Version uint64
-	Inputs  []TxInput
-	Outputs []TxOutput
-	Extra   []byte
+	Hash [32]byte
+	Raw  []byte
+
+	Version    uint64
+	UnlockTime uint64
+	VinCount   uint64
+	Inputs     []TxInput
+	VoutCount  uint64
+	Outputs    []TxOutput
+	Extra      []byte
+	RctSig     *RctSig
+	RctSigRaw  []byte
 }
 
 type TxInput struct {
-	Type   uint8
-	Height uint64 // Для coinbase input
+	Type       uint8
+	Height     uint64 // Для coinbase input
+	Amount     uint64
+	KeyOffsets []uint64
+	KeyImage   [32]byte
 }
 
 type TxOutput struct {
@@ -56,11 +65,21 @@ type TxOutput struct {
 	Target [32]byte
 }
 
+type RctSig struct {
+	Type          uint64
+	ECCommitments [][32]byte // commitments для каждого выхода
+	RangeProofs   [][]byte   // Bulletproofs или Borromean
+	MGSignatures  [][]byte   // подписи MLSAG
+}
+
 var noty = NotifierMock{}
 var hash = [32]byte{}
 
+var Address = "49LNPHcXRMkRBA4biaciBd4qMwxH9f3PZGqgA2EYztksQ2yE43Tr8pa7ZjgksuVenfWcNGKqNeddGHWu7ejroEJvCcQRt73"
+var PrivateViewKey = "7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d61f604"
+
 func main() {
-	blockHash, err := os.ReadFile("C:\\Users\\Karim\\Desktop\\dump.bin")
+	blockHash, err := os.ReadFile("C:\\Users\\Karim\\Desktop\\dump_985.bin")
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
@@ -137,11 +156,43 @@ func main() {
 		noty.NotifyWithLevel("=========", LevelSuccess)
 		noty.NotifyWithLevel(fmt.Sprintf("  Transaction count: %d", block.TxsCount), LevelSuccess)
 		for _, tx := range block.TXs {
+			if fmt.Sprintf("%x", tx.Hash) != "8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222" {
+				continue
+			}
 			tx.ParseTx()
 			noty.NotifyWithLevel("  ------", LevelSuccess)
 			noty.NotifyWithLevel(fmt.Sprintf("  - TX Hash: %X", tx.Hash), LevelSuccess)
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX Raw: %X...", tx.Raw[:31]), LevelSuccess)
+			noty.NotifyWithLevel(fmt.Sprintf("  - TX Version: %d", tx.Version), LevelSuccess)
+			noty.NotifyWithLevel(fmt.Sprintf("  - TX UnlockTime: %d", tx.UnlockTime), LevelSuccess)
+			noty.NotifyWithLevel(fmt.Sprintf("  - TX VinCount: %d", tx.VinCount), LevelInfo)
+			for _, input := range tx.Inputs {
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Type: %X", input.Type), LevelInfo)
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Amount: %d", input.Amount), LevelInfo)
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX KeyOffsets: %v", input.KeyOffsets), LevelInfo)
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX KeyImage: %X", input.KeyImage), LevelInfo)
+			}
+			noty.NotifyWithLevel(fmt.Sprintf("  - TX VoutCount: %d", tx.VoutCount), LevelGray)
+			for _, output := range tx.Outputs {
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Amount: %d", output.Amount), LevelGray)
+				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Target: %X", output.Target), LevelGray)
+			}
+			noty.NotifyWithLevel(fmt.Sprintf("  - TX Extra: %X", tx.Extra), LevelSuccess)
+
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX Rig: %X", tx.RctSigRaw), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.Type: %X", tx.RctSig.Type), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.ECCommitments: %v", tx.RctSig.ECCommitments), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.RangeProofs: %v", tx.RctSig.RangeProofs), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.MGSignatures: %v", tx.RctSig.MGSignatures), LevelSuccess)
+
+			funds, err := tx.FindFunds(Address, PrivateViewKey)
+			if err != nil {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
+			} else {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
+			}
+
 		}
+
 		os.Exit(11)
 	}
 }
@@ -153,11 +204,8 @@ func (block *ProcessingBlock) FullfillBlockHeader() error {
 
 	reader := bytes.NewReader(block.block)
 	//----
-	majorVersion, _ := readVarint(reader)
-	block.MajorVersion = uint8(majorVersion)
-	//----
-	minorVersion, _ := readVarint(reader)
-	block.MinorVersion = uint8(minorVersion)
+	block.MajorVersion, _ = readUint8(reader)
+	block.MinorVersion, _ = readUint8(reader)
 	//----
 	timestamp, _ := readVarint(reader)
 	block.Timestamp = timestamp
@@ -182,11 +230,12 @@ func (block *ProcessingBlock) FullfillBlockHeader() error {
 	}
 	block.MinerTx.Outs = outs
 	//----
-	block.MinerTx.ExtraSize, _ = readVarint(reader)
-	tempExtra := make([]byte, block.MinerTx.ExtraSize/2)
+	reader.Seek(1, io.SeekCurrent)
+	block.MinerTx.ExtraSize, _ = readUint8(reader)
+	block.MinerTx.ExtraSize += 1
+	tempExtra := make([]byte, block.MinerTx.ExtraSize)
 	reader.Read(tempExtra[:])
 	block.MinerTx.Extra = tempExtra
-	reader.Seek(11, io.SeekCurrent)
 	//----
 	block.TxsCount, _ = readVarint(reader)
 	for i := 0; i <= int(block.TxsCount)-1; i++ {
@@ -201,8 +250,100 @@ func (block *ProcessingBlock) FullfillBlockHeader() error {
 }
 
 func (tx *Transaction) ParseTx() {
-	
+	reader := bytes.NewReader(tx.Raw)
+
+	// 1. Версия транзакции
+	tx.Version, _ = readVarint(reader)
+	tx.UnlockTime, _ = readVarint(reader)
+
+	// 3. Inputs
+	tx.VinCount, _ = readVarint(reader)
+	for i := 0; i < int(tx.VinCount); i++ {
+		var in TxInput
+		// тип входа (0xff = coinbase)
+		in.Type, _ = reader.ReadByte()
+
+		if in.Type == 0xff { // Coinbase input
+			in.Height, _ = readVarint(reader)
+		} else if in.Type == 0x02 {
+			in.Amount, _ = readVarint(reader)
+			ofsCount, _ := readVarint(reader)
+			for j := 0; j < int(ofsCount); j++ {
+				ofs, _ := readVarint(reader)
+				in.KeyOffsets = append(in.KeyOffsets, ofs)
+			}
+			reader.Read(in.KeyImage[:])
+		} else {
+			fmt.Printf("⚠️ Unknown TxInput type: 0x%X\n", in.Type)
+		}
+		tx.Inputs = append(tx.Inputs, in)
+	}
+
+	// 4. Outputs
+	tx.VoutCount, _ = readVarint(reader)
+	for i := 0; i < int(tx.VoutCount); i++ {
+		var out TxOutput
+		out.Amount, _ = readVarint(reader)
+
+		// читаем target (обычно один байт типа и 32 байта ключа)
+		targetType, _ := reader.ReadByte()
+		if targetType != 0x02 {
+			// 0x02 = TXOUT_TO_KEY (обычный output Monero)
+			fmt.Printf("⚠️ Unknown TxOut target type: 0x%X\n", targetType)
+		}
+		reader.Read(out.Target[:])
+		reader.Seek(1, io.SeekCurrent)
+		tx.Outputs = append(tx.Outputs, out)
+	}
+
+	// 5. Extra
+	extraLen, _ := readVarint(reader)
+	extra := make([]byte, extraLen)
+	reader.Read(extra)
+	tx.Extra = extra
+
+	rest := make([]byte, reader.Len())
+	reader.Read(rest)
+	tx.RctSigRaw = rest
+
+	// 6. RingCT (если версия >= 2)
+	if tx.Version >= 2 && 2 == 1 { // && 2 == 1
+		var rct RctSig
+
+		// 1. Тип RingCT
+		rct.Type, _ = readVarint(reader)
+
+		// 2. Commitments для каждого выхода
+		for i := 0; i < int(tx.VoutCount); i++ {
+			var c [32]byte
+			reader.Read(c[:])
+			rct.ECCommitments = append(rct.ECCommitments, c)
+		}
+
+		// 3. Range proofs (Bulletproofs или Borromean)
+		// формат зависит от версии Monero, поэтому пока читаем как "blob"
+		proofLen, _ := readVarint(reader)
+		fmt.Println("Len:", proofLen)
+		proof := make([]byte, proofLen)
+		reader.Read(proof)
+		rct.RangeProofs = append(rct.RangeProofs, proof)
+
+		// 4. MG Signatures (по одному на каждый input)
+		for i := 0; i < len(tx.Inputs); i++ {
+			mlen, _ := readVarint(reader)
+			mg := make([]byte, mlen)
+			reader.Read(mg)
+			rct.MGSignatures = append(rct.MGSignatures, mg)
+		}
+
+		tx.RctSig = &rct
+	}
+
 	return
+}
+
+func (tx *Transaction) FindFunds(address string, privateview string) (float64, error) {
+	return 0, nil
 }
 
 // readVarint читает varint из reader
@@ -232,15 +373,10 @@ func readVarint(reader *bytes.Reader) (uint64, error) {
 	return result, nil
 }
 
-/*
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 0, val: 93d7b6de7644e8a623ee52c9d60fa2ae5d89d395af41db8213c8cc09758fa1c2
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 1, val: ee07c8d0686160e20368d7b585fcde31090920a759fa57e01250553ac2c89261
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 2, val: d25506e2272bc703548f5f8e5fb376b2ff16b5e609f7af03b2f2d8114cbc668c
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 3, val: 085ea3f566adfdeabe92656b2f02772013d5ef068def036ef490005b485fec2c
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 4, val: b93a08bc34c54892487b1d94d78c16cdc87bbbedd93dc54a0b15cf018e83a644
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 5, val: f5460b49d2fac85c03890e692c82d14be5176f68fd9825e09199d34357fefa98
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 6, val: f2a7c13578f7850111f9e4775a5b04e3c29dfb21c069af0c4daf6f69ca3791bd
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 7, val: 15898c9be24bda562fe6fe7dd0ae34dc4b9c6f3e6ef8c6f3bc43d85b9b8f52a7
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 8, val: 0c144535185b1926729881fe800db696d9e48d8805c2209b4c69c52869288818
-[20:42:55 09.09.2025] [NOTIFY] ⚫INFO⚫: I: 9, val: 831f23d2d99d1bcda321760b0d4ce69a5243ba9fea3bc08fcf8a48b4ebc5196b
-*/
+func readUint8(reader *bytes.Reader) (uint8, error) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return b, nil
+}

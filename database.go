@@ -1,15 +1,36 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"time"
 )
 
 type DatabaseMock struct{}
 type Nodelist []string
 
+func ResolveDomains(domains []string) ([]string, error) {
+	var ips []string
+
+	for _, domain := range domains {
+		addrs, err := net.LookupHost(domain)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка при резолве %s: %v", domain, err)
+		}
+		ips = append(ips, addrs...)
+	}
+
+	return ips, nil
+}
+
 func (d *DatabaseMock) GetNodeAddrs(coin string) (*Nodelist, error) {
+	// ips, err := ResolveDomains([]string{"xmr-node.cakewallet.com", "nodes.hashvault.pro", "node.sethforprivacy.com"})
+	// if err != nil {
+	// 	fmt.Println("Ошибка:", err)
+	// }
+
 	nodelist := &Nodelist{
 		"66.85.74.134:18080",
 
@@ -202,7 +223,7 @@ func (d *DatabaseMock) GetNodeAddrs(coin string) (*Nodelist, error) {
 }
 
 func (d *DatabaseMock) GetChainHeight(coin string) (int32, string, error) {
-	return 3492044, "a812af41771e7d5b7b8813e6841370c0615fcab34227a6a04aaceb4b76eaaed0", nil
+	return 3368326, "f6209b5fd9ab9c4f58ad77be4ad6ce8c97bb3e7d407514d4d19195c7bbabf278", nil
 }
 
 func (d *DatabaseMock) ProcessBlock(chainName string, block interface{}) error {
