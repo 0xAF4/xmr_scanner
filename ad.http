@@ -1,0 +1,31 @@
+###
+POST https://xmr.unshakled.net:443/json_rpc
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "0",
+  "method": "get_info"
+}
+
+###
+POST https://xmr.unshakled.net:443/json_rpc
+Content-Type: application/json
+
+{ 
+  "jsonrpc": "2.0",
+  "id": "0",
+  "method": "get_block",
+  "params": { "height": 3492045 }
+}
+
+###
+POST https://xmr.unshakled.net:443/get_transactions
+Content-Type: application/json
+
+{
+  "txs_hashes": [
+    "8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222"
+  ],
+  "decode_as_json": true
+}

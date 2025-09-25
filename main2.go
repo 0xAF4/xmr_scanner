@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -38,42 +39,65 @@ type MinerTransaction struct {
 }
 
 type Transaction struct {
-	Hash [32]byte
-	Raw  []byte
+	Hash [32]byte `json:"-"`
+	Raw  []byte   `json:"-"`
 
-	Version    uint64
-	UnlockTime uint64
-	VinCount   uint64
-	Inputs     []TxInput
-	VoutCount  uint64
-	Outputs    []TxOutput
-	Extra      []byte
-	RctSig     *RctSig
-	RctSigRaw  []byte
+	Version        uint64          `json:"version"`
+	UnlockTime     uint64          `json:"unlock_time"`
+	VinCount       uint64          `json:"-"`
+	Inputs         []TxInput       `json:"vin"`
+	VoutCount      uint64          `json:"-"`
+	Outputs        []TxOutput      `json:"vout"`
+	Extra          ByteArray       `json:"extra"`
+	RctRaw         []byte          `json:"-"`
+	RctSignature   *RctSignature   `json:"rct_signature"`
+	RctSigPrunable *RctSigPrunable `json:"rctsig_prunable"`
 }
 
 type TxInput struct {
-	Type       uint8
-	Height     uint64 // Для coinbase input
-	Amount     uint64
-	KeyOffsets []uint64
-	KeyImage   [32]byte
+	Type       uint8    `json:"-"`
+	Height     uint64   `json:"-"`
+	Amount     uint64   `json:"amount"`
+	KeyOffsets []uint64 `json:"key_offsets"`
+	KeyImage   Hash     `json:"k_image"`
 }
 
 type TxOutput struct {
-	Amount uint64
-	Target [32]byte
+	Amount  uint64 `json:"amount"`
+	Target  Hash   `json:"key"`
+	ViewTag HByte  `json:"view_tag"`
 }
 
-type RctSig struct {
-	Type          uint64
-	ECCommitments [][32]byte // commitments для каждого выхода
-	RangeProofs   [][]byte   // Bulletproofs или Borromean
-	MGSignatures  [][]byte   // подписи MLSAG
+type RctSignature struct {
+	Type     uint64
+	TxnFee   uint64
+	EcdhInfo []struct {
+		Amount [8]byte
+	}
+	OutPk [][32]byte
+}
+
+type RctSigPrunable struct {
+	Nbp uint64
+	Bpp []struct {
+		A  [32]byte
+		A1 [32]byte
+		B  [32]byte
+		R1 [32]byte
+		S1 [32]byte
+		D1 [32]byte
+		L  [][32]byte
+		R  [][32]byte
+	}
+	CLSAGs []struct {
+		S  [][32]byte
+		C1 [32]byte
+		D  [32]byte
+	}
+	PseudoOuts [][32]byte
 }
 
 var noty = NotifierMock{}
-var hash = [32]byte{}
 
 var Address = "49LNPHcXRMkRBA4biaciBd4qMwxH9f3PZGqgA2EYztksQ2yE43Tr8pa7ZjgksuVenfWcNGKqNeddGHWu7ejroEJvCcQRt73"
 var PrivateViewKey = "7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d61f604"
@@ -162,34 +186,20 @@ func main() {
 			tx.ParseTx()
 			noty.NotifyWithLevel("  ------", LevelSuccess)
 			noty.NotifyWithLevel(fmt.Sprintf("  - TX Hash: %X", tx.Hash), LevelSuccess)
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX Version: %d", tx.Version), LevelSuccess)
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX UnlockTime: %d", tx.UnlockTime), LevelSuccess)
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX VinCount: %d", tx.VinCount), LevelInfo)
-			for _, input := range tx.Inputs {
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Type: %X", input.Type), LevelInfo)
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Amount: %d", input.Amount), LevelInfo)
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX KeyOffsets: %v", input.KeyOffsets), LevelInfo)
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX KeyImage: %X", input.KeyImage), LevelInfo)
-			}
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX VoutCount: %d", tx.VoutCount), LevelGray)
-			for _, output := range tx.Outputs {
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Amount: %d", output.Amount), LevelGray)
-				noty.NotifyWithLevel(fmt.Sprintf("  --- TX Target: %X", output.Target), LevelGray)
-			}
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX Extra: %X", tx.Extra), LevelSuccess)
-
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX Rig: %X", tx.RctSigRaw), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.Type: %X", tx.RctSig.Type), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.ECCommitments: %v", tx.RctSig.ECCommitments), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.RangeProofs: %v", tx.RctSig.RangeProofs), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX RctSig.MGSignatures: %v", tx.RctSig.MGSignatures), LevelSuccess)
-
-			funds, err := tx.FindFunds(Address, PrivateViewKey)
+			data, err := json.MarshalIndent(tx, "", "  ")
 			if err != nil {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
-			} else {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
+				panic(err)
 			}
+			noty.NotifyWithLevel("\n"+string(data), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  - TX Extra: %X", tx.Extra), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  --- TX Extra: %v", tx.Extra), LevelInfo)
+			
+			// funds, err := tx.FindFunds(Address, PrivateViewKey)
+			// if err != nil {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
+			// } else {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
+			// }
 
 		}
 
@@ -292,7 +302,8 @@ func (tx *Transaction) ParseTx() {
 			fmt.Printf("⚠️ Unknown TxOut target type: 0x%X\n", targetType)
 		}
 		reader.Read(out.Target[:])
-		reader.Seek(1, io.SeekCurrent)
+		b, _ := reader.ReadByte()
+		out.ViewTag = HByte(b)
 		tx.Outputs = append(tx.Outputs, out)
 	}
 
@@ -304,46 +315,9 @@ func (tx *Transaction) ParseTx() {
 
 	rest := make([]byte, reader.Len())
 	reader.Read(rest)
-	tx.RctSigRaw = rest
-
-	// 6. RingCT (если версия >= 2)
-	if tx.Version >= 2 && 2 == 1 { // && 2 == 1
-		var rct RctSig
-
-		// 1. Тип RingCT
-		rct.Type, _ = readVarint(reader)
-
-		// 2. Commitments для каждого выхода
-		for i := 0; i < int(tx.VoutCount); i++ {
-			var c [32]byte
-			reader.Read(c[:])
-			rct.ECCommitments = append(rct.ECCommitments, c)
-		}
-
-		// 3. Range proofs (Bulletproofs или Borromean)
-		// формат зависит от версии Monero, поэтому пока читаем как "blob"
-		proofLen, _ := readVarint(reader)
-		fmt.Println("Len:", proofLen)
-		proof := make([]byte, proofLen)
-		reader.Read(proof)
-		rct.RangeProofs = append(rct.RangeProofs, proof)
-
-		// 4. MG Signatures (по одному на каждый input)
-		for i := 0; i < len(tx.Inputs); i++ {
-			mlen, _ := readVarint(reader)
-			mg := make([]byte, mlen)
-			reader.Read(mg)
-			rct.MGSignatures = append(rct.MGSignatures, mg)
-		}
-
-		tx.RctSig = &rct
-	}
+	tx.RctRaw = rest
 
 	return
-}
-
-func (tx *Transaction) FindFunds(address string, privateview string) (float64, error) {
-	return 0, nil
 }
 
 // readVarint читает varint из reader
