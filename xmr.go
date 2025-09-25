@@ -314,19 +314,18 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 		for _, entry := range raw.Entries {
 			if entry.Name == "blocks" {
 				for _, blk := range entry.Entries() {
-					_block := &ProcessingBlock{}
+					block := levin.NewBlock()
 					for _, ibl := range blk.Entries() {
 						if ibl.Name == "block" {
-							_block.block = ibl.Bytes()
+							block.SetBlockData([]byte(ibl.String()))
 						} else {
 							for _, itx := range ibl.Entries() {
-								_ = itx
-								_block.TXs = append(_block.TXs, nil)
+								block.InsertTx([]byte(itx.String()))
 							}
 						}
 					}
-					p.n.NotifyWithLevel(fmt.Sprintf("block len: %d", len(_block.block)), LevelSuccess)
-					for _, tx := range _block.TXs {
+					// p.n.NotifyWithLevel(fmt.Sprintf("block len: %d", len(block.block)), LevelSuccess)
+					for _, tx := range block.TXs {
 						p.n.NotifyWithLevel(fmt.Sprintf(" - tx len: %d", len(tx.Raw)), LevelSuccess)
 					}
 					p.n.NotifyWithLevel("=====", LevelSuccess)

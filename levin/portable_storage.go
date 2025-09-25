@@ -1,6 +1,7 @@
 package levin
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 )
@@ -500,4 +501,39 @@ func VarIn(i int) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("int %d too big", i)
+}
+
+// readVarint читает varint из reader
+func ReadVarint(reader *bytes.Reader) (uint64, error) {
+	var result uint64
+	var shift uint
+
+	for {
+		if shift >= 64 {
+			return 0, fmt.Errorf("varint too long")
+		}
+
+		b, err := reader.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+
+		result |= uint64(b&0x7F) << shift
+
+		if (b & 0x80) == 0 {
+			break
+		}
+
+		shift += 7
+	}
+
+	return result, nil
+}
+
+func ReadUint8(reader *bytes.Reader) (uint8, error) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return b, nil
 }
