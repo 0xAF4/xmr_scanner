@@ -46,41 +46,33 @@ func main() {
 	}
 
 	for i, block := range blocksArr {
-		noty.NotifyWithLevel(fmt.Sprintf("Processing block %d", i), LevelInfo)
-
 		if err := block.FullfillBlockHeader(); err != nil {
 			noty.NotifyWithLevel(fmt.Sprintf("Error processing block header %d: %v", i, err), LevelError)
 			continue
 		}
 
-		noty.NotifyWithLevel(fmt.Sprintf("Block %d processed successfully", i), LevelSuccess)
-		data1, _ := json.MarshalIndent(block, "", "  ")
-		noty.NotifyWithLevel("\n"+string(data1), LevelSuccess)
-
-		noty.NotifyWithLevel("=========", LevelSuccess)
+		// noty.NotifyWithLevel(fmt.Sprintf("Block %d processed successfully", i), LevelSuccess)
+		// data1, _ := json.MarshalIndent(block, "", "  ")
+		// noty.NotifyWithLevel("\n"+string(data1), LevelSuccess)
+		// noty.NotifyWithLevel("=========", LevelSuccess)
 
 		for _, tx := range block.TXs {
 			if fmt.Sprintf("%x", tx.Hash) != "8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222" {
 				continue
 			}
 			tx.ParseTx()
-			noty.NotifyWithLevel("  ------", LevelSuccess)
-			noty.NotifyWithLevel(fmt.Sprintf("  - TX Hash: %X", tx.Hash), LevelSuccess)
-			data, err := json.MarshalIndent(tx, "", "  ")
-			if err != nil {
-				panic(err)
-			}
-			noty.NotifyWithLevel("\n"+string(data), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  - TX Extra: %X", tx.Extra), LevelSuccess)
-			// noty.NotifyWithLevel(fmt.Sprintf("  --- TX Extra: %v", tx.Extra), LevelInfo)
+			tx.ParseRctSig()
+			noty.NotifyWithLevel(fmt.Sprintf("  ------- TX Hash: %X", tx.Hash), LevelSuccess)
+			data2, _ := json.MarshalIndent(tx, "", "  ")
+			noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
 
+			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
 			// funds, err := tx.FindFunds(Address, PrivateViewKey)
 			// if err != nil {
 			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
 			// } else {
 			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
 			// }
-
 		}
 
 		os.Exit(11)

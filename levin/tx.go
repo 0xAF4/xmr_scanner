@@ -35,33 +35,39 @@ type TxOutput struct {
 	ViewTag HByte  `json:"view_tag"`
 }
 
+type Echd struct {
+	Amount HAmount `json:"amount"`
+}
+
 type RctSignature struct {
-	Type     uint64
-	TxnFee   uint64
-	EcdhInfo []struct {
-		Amount [8]byte
-	}
-	OutPk [][32]byte
+	Type     uint64 `json:"type"`
+	TxnFee   uint64 `json:"txn_fee"`
+	EcdhInfo []Echd `json:"ecdhInfo"`
+	OutPk    []Hash `json:"outPk"`
+}
+
+type Bpp struct {
+	A  Hash   `json:"A"`
+	A1 Hash   `json:"A1"`
+	B  Hash   `json:"B"`
+	R1 Hash   `json:"r1"`
+	S1 Hash   `json:"s1"`
+	D1 Hash   `json:"d1"`
+	L  []Hash `json:"L"`
+	R  []Hash `json:"R"`
+}
+
+type CLSAG struct {
+	S  []Hash `json:"s"`
+	C1 Hash   `json:"c1"`
+	D  Hash   `json:"D"`
 }
 
 type RctSigPrunable struct {
-	Nbp uint64
-	Bpp []struct {
-		A  [32]byte
-		A1 [32]byte
-		B  [32]byte
-		R1 [32]byte
-		S1 [32]byte
-		D1 [32]byte
-		L  [][32]byte
-		R  [][32]byte
-	}
-	CLSAGs []struct {
-		S  [][32]byte
-		C1 [32]byte
-		D  [32]byte
-	}
-	PseudoOuts [][32]byte
+	Nbp        uint64  `json:"nbp"`
+	Bpp        []Bpp   `json:"bpp"`
+	CLSAGs     []CLSAG `json:"CLSAGs"`
+	PseudoOuts []Hash  `json:"pseudoOuts"`
 }
 
 func (tx *Transaction) ParseTx() {
@@ -121,6 +127,84 @@ func (tx *Transaction) ParseTx() {
 	rest := make([]byte, reader.Len())
 	reader.Read(rest)
 	tx.RctRaw = rest
+}
 
-	return
+func (tx *Transaction) ParseRctSig() {
+	if len(tx.RctRaw) == 0 {
+		return
+	}
+
+	RctSignature := &RctSignature{}
+	RctSigPrunable := &RctSigPrunable{}
+
+	reader := bytes.NewReader(tx.RctRaw)
+	RctSignature.Type, _ = ReadVarint(reader)
+	RctSignature.TxnFee, _ = ReadVarint(reader)
+
+	for i := 0; i < len(tx.Outputs); i++ {
+		ecdh := Echd{}
+		reader.Read(ecdh.Amount[:])
+		RctSignature.EcdhInfo = append(RctSignature.EcdhInfo, ecdh)
+	}
+
+	for i := 0; i < len(tx.Outputs); i++ {
+		var outPk Hash
+		reader.Read(outPk[:])
+		RctSignature.OutPk = append(RctSignature.OutPk, outPk)
+	}
+
+	RctSigPrunable.Nbp, _ = ReadVarint(reader)
+	for i := 0; i < int(RctSigPrunable.Nbp); i++ {
+		bpp := Bpp{}
+		reader.Read(bpp.A[:])
+		reader.Read(bpp.A1[:])
+		reader.Read(bpp.B[:])
+		reader.Read(bpp.R1[:])
+		reader.Read(bpp.S1[:])
+		reader.Read(bpp.D1[:])
+
+		c, _ := ReadVarint(reader)
+		for j := 0; j < int(c); j++ {
+			var l Hash
+			reader.Read(l[:])
+			bpp.L = append(bpp.L, l)
+		}
+
+		c, _ = ReadVarint(reader)
+		for j := 0; j < int(c); j++ {
+			var r Hash
+			reader.Read(r[:])
+			bpp.R = append(bpp.R, r)
+		}
+
+		RctSigPrunable.Bpp = append(RctSigPrunable.Bpp, bpp)
+	}
+
+	// CLSAGs
+	for i := 0; i < int(tx.VinCount); i++ {
+		CLSAG := CLSAG{}
+		for j := 0; j < len(tx.Inputs[i].KeyOffsets); j++ {
+			var s Hash // Скаляр — 32 байта
+			reader.Read(s[:])
+			CLSAG.S = append(CLSAG.S, s)
+		}
+
+		reader.Read(CLSAG.C1[:])
+		reader.Read(CLSAG.D[:])
+
+		RctSigPrunable.CLSAGs = append(RctSigPrunable.CLSAGs, CLSAG)
+	}
+
+	for i := 0; i < int(tx.VinCount); i++ {
+		var s Hash // Скаляр — 32 байта
+		reader.Read(s[:])
+		RctSigPrunable.PseudoOuts = append(RctSigPrunable.PseudoOuts, s)
+	}
+
+	tx.RctSignature = RctSignature
+	tx.RctSigPrunable = RctSigPrunable
+
+	rest := make([]byte, reader.Len())
+	reader.Read(rest)
+	tx.RctRaw = rest
 }
