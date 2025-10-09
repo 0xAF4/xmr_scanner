@@ -67,12 +67,12 @@ func main() {
 			noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
 
 			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
-			// funds, err := tx.FindFunds(Address, PrivateViewKey)
-			// if err != nil {
-			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
-			// } else {
-			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
-			// }
+			funds, err := tx.FindFunds(Address, PrivateViewKey)
+			if err != nil {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
+			} else {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
+			}
 		}
 
 		os.Exit(11)
