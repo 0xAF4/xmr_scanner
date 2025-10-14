@@ -147,17 +147,11 @@ func DerivePublicKey(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte,
 		return nil, err
 	}
 
-	// load scalar a (private view key) - treat as little-endian
+	// load scalar a (private view key): use provided 32-byte scalar directly
 	var a edwards25519.Scalar
-	// use SetBytesWithClamping? private view key is already scalar; use SetUniformBytes to reduce
-	// try SetBytes with reduced form via SetUniformBytes on hash of key if available
-	// here we will use SetBytes(&privateViewKey) via SetBytesWithClamping-like approach
-	// The edwards25519 Scalar provides SetBytesWithClamping
-	if _, err := a.SetBytesWithClamping(privateViewKey); err != nil {
-		// fallback: try SetCanonical
-		if _, err2 := a.SetCanonicalBytes(privateViewKey); err2 != nil {
-			return nil, err
-		}
+	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
+		// fallback: if not canonical, use SetUniformBytes
+		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
 	}
 
 	// shared = a * R
@@ -212,7 +206,13 @@ func sc_reduce32(in []byte) []byte {
 	// Real L:
 	L, _ := new(big.Int).SetString("723700557733226221397318656304299424085711635937990760600195093828545425057", 10)
 
-	v := new(big.Int).SetBytes(in)
+	// Monero treats byte arrays as little-endian for scalar reduction.
+	// Convert little-endian input to big-endian for big.Int by reversing bytes.
+	rev := make([]byte, len(in))
+	for i := 0; i < len(in); i++ {
+		rev[i] = in[len(in)-1-i]
+	}
+	v := new(big.Int).SetBytes(rev)
 	v.Mod(v, L)
 	// produce 32-byte little-endian
 	res := make([]byte, 32)
@@ -220,11 +220,28 @@ func sc_reduce32(in []byte) []byte {
 	for i := 0; i < 32; i++ {
 		if tmp.Sign() == 0 {
 			res[i] = 0
-			continue
+		} else {
+			byteVal := new(big.Int).And(tmp, big.NewInt(0xff))
+			res[i] = byte(byteVal.Int64())
+			tmp.Rsh(tmp, 8)
 		}
-		byteVal := new(big.Int).And(tmp, big.NewInt(0xff))
-		res[i] = byte(byteVal.Int64())
-		tmp.Rsh(tmp, 8)
 	}
 	return res
+}
+
+// SharedSecret computes shared = a * R where a is private view key and R is tx public key
+func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
+	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
+		return nil, errors.New("invalid key lengths")
+	}
+	var R edwards25519.Point
+	if _, err := R.SetBytes(txPubKey); err != nil {
+		return nil, err
+	}
+	var a edwards25519.Scalar
+	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
+		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
+	}
+	shared := new(edwards25519.Point).ScalarMult(&a, &R)
+	return shared.Bytes(), nil
 }

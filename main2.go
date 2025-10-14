@@ -12,6 +12,9 @@ var noty = NotifierMock{}
 var Address = "49LNPHcXRMkRBA4biaciBd4qMwxH9f3PZGqgA2EYztksQ2yE43Tr8pa7ZjgksuVenfWcNGKqNeddGHWu7ejroEJvCcQRt73"
 var PrivateViewKey = "7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d61f604"
 
+var WrongAddress = "49PkZX7wmMiRpMu1PaVJgLF7h8zCMQrNJ8Rz7W1u5Sc4RU5vphEWwEST8zKWazTxAgPXQAMUryGc6UsQCq3BQ5ChGHMR5sv"
+var WrongPrivateViewKey = "3b3cc475da85f718e07a4a1fb33bf16a47ef1a3df2a6d65fcc00a104ed277e0e"
+
 func main() {
 	blockHash, err := os.ReadFile("C:\\Users\\Karim\\Desktop\\dump_985.bin")
 	if err != nil {
@@ -67,11 +70,19 @@ func main() {
 			noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
 
 			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
-			funds, err := tx.FindFunds(Address, PrivateViewKey)
+			funds, err := tx.CheckOutputs(Address, PrivateViewKey)
 			if err != nil {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds error: %s", err), LevelError)
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
 			} else {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX Find funds amount: %.8f", funds), LevelWarning)
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx"), LevelWarning)
+			}
+
+			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
+			funds, err = tx.CheckOutputs(WrongAddress, WrongPrivateViewKey)
+			if err != nil {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
+			} else {
+				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx"), LevelWarning)
 			}
 		}
 
