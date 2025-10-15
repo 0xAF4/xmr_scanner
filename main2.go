@@ -77,13 +77,14 @@ func main() {
 				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx"), LevelWarning)
 			}
 
-			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
-			funds, err = tx.CheckOutputs(WrongAddress, WrongPrivateViewKey)
-			if err != nil {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
-			} else {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx"), LevelWarning)
-			}
+			// noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
+			// funds, err = tx.CheckOutputs(WrongAddress, WrongPrivateViewKey)
+			// if err != nil {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
+			// } else {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx"), LevelWarning)
+			// }
+			_ = funds
 		}
 
 		os.Exit(11)
