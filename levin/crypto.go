@@ -3,7 +3,6 @@ package levin
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 
@@ -153,24 +152,16 @@ func DerivePublicKey(txPubKey []byte, privateViewKey []byte, _ []byte, index uin
 		return nil, errors.New("invalid key lengths")
 	}
 
-	fmt.Printf("Input: txPubKey = %x\n", txPubKey)
-	fmt.Printf("Input: privateViewKey = %x\n", privateViewKey)
-	fmt.Printf("Input: index = %d\n", index)
-
 	// derivation = 8 * a * R
 	derivation, err := SharedSecret(txPubKey, privateViewKey)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Step 1 - derivation (8 * a * R) = %x\n", derivation)
 
 	// Hs(derivation || varint(index))
 	idxBytes := encodeVarint(index)
-	fmt.Printf("Step 2 - varint(index) = %x\n", idxBytes)
 	h := keccak256(append(derivation, idxBytes...))
-	fmt.Printf("Step 3 - Hs(8 * a * R || varint(index)) = %x\n", h)
 	scalarH := sc_reduce32(h)
-	fmt.Printf("Step 4 - reduced Hs(...) = %x\n", scalarH)
 
 	var s edwards25519.Scalar
 	if _, err := s.SetCanonicalBytes(scalarH); err != nil {
@@ -179,7 +170,6 @@ func DerivePublicKey(txPubKey []byte, privateViewKey []byte, _ []byte, index uin
 
 	// P = Hs(...) * G (RingCT v2+)
 	P := new(edwards25519.Point).ScalarBaseMult(&s)
-	fmt.Printf("Step 5 - final P = Hs(...) * G = %x\n", P.Bytes())
 
 	return P.Bytes(), nil
 }

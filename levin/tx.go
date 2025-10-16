@@ -316,6 +316,9 @@ func DerivePublicKeyWithViewTag(txPubKey []byte, privateViewKey []byte, pubSpend
 	viewTag := viewTagHash[0]
 
 	// Reuse existing DerivePublicKey to compute the one-time public key
+	fmt.Printf("txPubKey: %x, privateViewKey: %x, pubSpendKey: %x, index: %d\n",
+		txPubKey, privateViewKey, pubSpendKey, index)
+
 	derivedKey, err := DerivePublicKey(txPubKey, privateViewKey, pubSpendKey, index)
 	if err != nil {
 		return nil, 0, err
