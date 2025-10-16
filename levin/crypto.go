@@ -142,34 +142,46 @@ func equalBytes(a, b []byte) bool {
 	return true
 }
 
-// derivePublicKey implements Monero's derive_public_key: given tx pubkey R (32 bytes),
-// recipient private view key (32 bytes hex) and recipient public spend key B (32 bytes),
-// returns the one-time public key for given output index.
-// derivePublicKey implements Monero's derive_public_key for RingCT v2+
-// where P = Hs(a*R*i + index) * G, without adding B
-func DerivePublicKey(txPubKey []byte, privateViewKey []byte, _ []byte, index uint64) ([]byte, error) {
-	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
+// DerivePublicKey implements Monero's derive_public_key
+// P = Hs(8*a*R || index)*G + B
+// DerivePublicKey implements Monero's derive_public_key
+// P = Hs(8*a*R || index)*G + B
+func DerivePublicKey(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte, index uint64) ([]byte, error) {
+	if len(txPubKey) != 32 || len(privateViewKey) != 32 || len(pubSpendKey) != 32 {
 		return nil, errors.New("invalid key lengths")
 	}
 
-	// derivation = 8 * a * R
+	// Step 1: Calculate shared secret (derivation = 8 * a * R)
 	derivation, err := SharedSecret(txPubKey, privateViewKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// Hs(derivation || varint(index))
+	// Step 2: Create hash input: derivation || varint(index)
 	idxBytes := encodeVarint(index)
-	h := keccak256(append(derivation, idxBytes...))
-	scalarH := sc_reduce32(h)
+	hashInput := append(derivation, idxBytes...)
 
+	// Step 3: Hash to scalar: Hs(derivation || index)
+	h := keccak256(hashInput)
+
+	// Step 4: Convert to edwards25519 scalar using SetBytesWithClamping
 	var s edwards25519.Scalar
-	if _, err := s.SetCanonicalBytes(scalarH); err != nil {
-		s.SetUniformBytes(append(scalarH, scalarH...))
+	_, err = s.SetBytesWithClamping(h)
+	if err != nil {
+		return nil, errors.New("failed to convert hash to scalar")
 	}
 
-	// P = Hs(...) * G (RingCT v2+)
-	P := new(edwards25519.Point).ScalarBaseMult(&s)
+	// Step 5: Calculate Hs(...)*G
+	hsG := new(edwards25519.Point).ScalarBaseMult(&s)
+
+	// Step 6: Parse public spend key B
+	var B edwards25519.Point
+	if _, err := B.SetBytes(pubSpendKey); err != nil {
+		return nil, errors.New("invalid public spend key")
+	}
+
+	// Step 7: P = Hs(...)*G + B
+	P := new(edwards25519.Point).Add(hsG, &B)
 
 	return P.Bytes(), nil
 }
@@ -218,31 +230,67 @@ func sc_reduce32(in []byte) []byte {
 }
 
 // SharedSecret computes shared = a * R where a is private view key and R is tx public key
+// func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
+// 	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
+// 		return nil, errors.New("invalid key lengths")
+// 	}
+// 	var R edwards25519.Point
+// 	if _, err := R.SetBytes(txPubKey); err != nil {
+// 		return nil, err
+// 	}
+// 	var a edwards25519.Scalar
+// 	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
+// 		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
+// 	}
+
+// 	// shared = a * R
+// 	shared := new(edwards25519.Point).ScalarMult(&a, &R)
+
+// 	// Multiply by cofactor 8 to match Monero's ge_mul8( a * R ) used for key_derivation
+// 	// Create scalar 8 (little-endian)
+// 	eightBytes := make([]byte, 32)
+// 	eightBytes[0] = 8
+// 	var eight edwards25519.Scalar
+// 	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
+// 		// fallback: set via SetUniformBytes (shouldn't happen for small scalar 8)
+// 		eight.SetUniformBytes(append(eightBytes, eightBytes...))
+// 	}
+// 	shared8 := new(edwards25519.Point).ScalarMult(&eight, shared)
+// 	return shared8.Bytes(), nil
+// }
+
+// SharedSecret computes shared = (8*a) * R where a is private view key and R is tx public key
 func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
 	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
 		return nil, errors.New("invalid key lengths")
 	}
+
+	// Parse tx public key R
 	var R edwards25519.Point
 	if _, err := R.SetBytes(txPubKey); err != nil {
 		return nil, err
 	}
+
+	// Parse private view key a
 	var a edwards25519.Scalar
 	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
 		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
 	}
 
-	// shared = a * R
-	shared := new(edwards25519.Point).ScalarMult(&a, &R)
-
-	// Multiply by cofactor 8 to match Monero's ge_mul8( a * R ) used for key_derivation
-	// Create scalar 8 (little-endian)
+	// Multiply private key by 8: (8*a)
 	eightBytes := make([]byte, 32)
 	eightBytes[0] = 8
 	var eight edwards25519.Scalar
 	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
-		// fallback: set via SetUniformBytes (shouldn't happen for small scalar 8)
 		eight.SetUniformBytes(append(eightBytes, eightBytes...))
 	}
-	shared8 := new(edwards25519.Point).ScalarMult(&eight, shared)
-	return shared8.Bytes(), nil
+
+	// 8*a
+	var eightA edwards25519.Scalar
+	eightA.Multiply(&eight, &a)
+
+	// shared = (8*a) * R
+	shared := new(edwards25519.Point).ScalarMult(&eightA, &R)
+
+	return shared.Bytes(), nil
 }
