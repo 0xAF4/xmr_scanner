@@ -211,7 +211,7 @@ func (tx *Transaction) ParseRctSig() {
 	tx.RctRaw = rest
 }
 
-func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint64, error) {
+func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (float64, error) {
 	pubSpendKey, pubViewKey, err := DecodeAddress(address) // correct ✅
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode address: %w", err)
@@ -232,7 +232,7 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 	}
 
 	// Check each output
-	var totalAmount uint64
+	var totalAmount float64
 	var foundOutputs int
 
 	for outputIndex, output := range tx.Outputs {
@@ -262,7 +262,7 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 
 		// This output belongs to us!
 		foundOutputs++
-		var amount uint64
+		var amount float64
 
 		// If it's an RCT transaction, decode the amount
 		if tx.RctSignature != nil && tx.RctSignature.Type > 0 {
@@ -276,11 +276,11 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 				if err != nil {
 					return 0, fmt.Errorf("failed to decode RCT amount for output %d: %w", outputIndex, err)
 				} else {
-					fmt.Printf("Output %d: Decoded RCT amount: %d\n", outputIndex, amount)
+					fmt.Printf("Output %d: Decoded RCT amount: %.12f\n", outputIndex, amount)
 				}
 			}
 		} else {
-			amount = output.Amount
+			amount = 0
 		}
 
 		totalAmount += amount
@@ -378,40 +378,69 @@ func extractTxPubKey(extra []byte) ([]byte, error) {
 }
 
 // decodeRctAmount decodes an encrypted RCT amount
-func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encryptedAmount []byte) (uint64, error) {
+func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encryptedAmount []byte) (float64, error) {
 	if len(encryptedAmount) != 8 {
 		return 0, fmt.Errorf("invalid encrypted amount length: %d", len(encryptedAmount))
 	}
 
-	// Compute shared secret
-	sharedSecret, err := SharedSecret(txPubKey, privateViewKey)
+	// Parse R (tx pubkey)
+	Rpt, err := new(edwards25519.Point).SetBytes(txPubKey)
 	if err != nil {
-		return 0, fmt.Errorf("failed to compute shared secret: %w", err)
+		return 0, fmt.Errorf("invalid tx public key: %w", err)
 	}
 
-	// Create derivation data: "amount" + shared_secret + output_index (varint)
-	derivationData := append([]byte("amount"), sharedSecret...)
-
-	// Add output index as varint for small values (< 128), it's just one byte
-	if outputIndex < 128 {
-		derivationData = append(derivationData, byte(outputIndex))
-	} else {
-		// For larger indices, use proper varint encoding
-		indexBytes := encodeVarint(outputIndex)
-		derivationData = append(derivationData, indexBytes...)
+	// Parse scalar a (private view key)
+	a := new(edwards25519.Scalar)
+	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
+		return 0, fmt.Errorf("invalid private view key scalar bytes: %w", err)
 	}
 
-	// Hash to get decryption key
-	decryptionKey := keccak256(derivationData)
+	// Scalar eight = 8
+	eightBytes := make([]byte, 32)
+	eightBytes[0] = 8
+	eight := new(edwards25519.Scalar)
+	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
+		return 0, fmt.Errorf("creating scalar 8 failed: %w", err)
+	}
 
-	// XOR the encrypted amount with first 8 bytes of decryption key
+	// eightA = eight * a
+	eightA := new(edwards25519.Scalar).Multiply(eight, a)
+
+	// Compute shared secret: sharedPoint = (8*a) * R
+	sharedPoint := new(edwards25519.Point).ScalarMult(eightA, Rpt)
+	sharedBytes := sharedPoint.Bytes()
+
+	// Monero hash_to_scalar (Hs):
+	// 1. Concatenate 8aR with varint(outputIndex)
+	// 2. Hash with keccak256 to get 32 bytes
+	// 3. Interpret as scalar (reduce mod l) - this is Hs(8aR || i)
+	hashInput := append(sharedBytes, encodeVarint(outputIndex)...)
+	hsHash := keccak256(hashInput) // 32 bytes
+
+	// For sc_reduce32: pad the 32-byte hash to 64 bytes for SetUniformBytes
+	// SetUniformBytes expects 64 bytes and reduces mod l internally
+	hsHash64 := make([]byte, 64)
+	copy(hsHash64, hsHash)
+
+	hsScalar := new(edwards25519.Scalar)
+	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
+		return 0, fmt.Errorf("hash_to_scalar failed: %w", err)
+	}
+
+	// Get the canonical bytes of the scalar Hs
+	hsBytes := hsScalar.Bytes()
+
+	// Compute amount mask: keccak256("amount" || Hs)
+	amountMask := keccak256(append([]byte("amount"), hsBytes...))
+
+	// XOR first 8 bytes (little-endian) to get amount
 	var amount uint64
 	for i := 0; i < 8; i++ {
-		decrypted := encryptedAmount[i] ^ decryptionKey[i]
+		decrypted := encryptedAmount[i] ^ amountMask[i]
 		amount |= uint64(decrypted) << (8 * i)
 	}
 
-	return amount, nil
+	return float64(amount) / 1e12, nil
 }
 
 // encodeVarint encodes a uint64 as a varint (used in Monero)
