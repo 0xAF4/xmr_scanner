@@ -216,8 +216,6 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 	if err != nil {
 		return 0, fmt.Errorf("failed to decode address: %w", err)
 	}
-	fmt.Printf("Public Spend Key: %x\n", pubSpendKey) //Public Spend Key: cb7daf66af88f390889517765b175416ebbe384baa92945eb250aff05f30d489
-	fmt.Printf("Public View Key: %x\n", pubViewKey)   //Public View Key: b605672b04d08b273efddf76a6d5acb106766fdf6e6e5f62bd5b4e6a71daa366
 
 	privViewKeyBytes, err := hexTo32(privateViewKey) // correct ✅
 	if err != nil {
@@ -232,17 +230,12 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 	if err != nil {
 		return 0, fmt.Errorf("failed to extract tx public key: %w", err)
 	}
-	fmt.Printf("Transaction Public Key: %x\n", txPubKey) //Transaction Public Key: b8cdf95be694f3b0cbb5174ea1945f95097706adfc889a8d6be92d42b0cd06ff
 
 	// Check each output
 	var totalAmount uint64
 	var foundOutputs int
 
 	for outputIndex, output := range tx.Outputs {
-		fmt.Println("Output Index:", outputIndex)
-		fmt.Printf("Output Target Key: %x\n", output.Target)
-		fmt.Printf("Output View Tag: %x\n", output.ViewTag)
-
 		// Derive the one-time public key and view tag
 		derivedKey, viewTagByte, err := DerivePublicKeyWithViewTag(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(outputIndex))
 		if err != nil {
@@ -263,6 +256,8 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 		if !equalBytes(derivedKey, output.Target[:]) {
 			fmt.Printf("Output %d: Derived key %x does not match output target %x\n", outputIndex, derivedKey, output.Target)
 			continue // Not our output
+		} else {
+			fmt.Printf("Output %d: Derived key matches output target ✅\n", outputIndex)
 		}
 
 		// This output belongs to us!
@@ -272,7 +267,7 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 		// If it's an RCT transaction, decode the amount
 		if tx.RctSignature != nil && tx.RctSignature.Type > 0 {
 			if outputIndex < len(tx.RctSignature.EcdhInfo) {
-				amount, err = decodeRctAmount(
+				amount, err = DecodeRctAmount(
 					txPubKey,
 					privViewKeyBytes,
 					uint64(outputIndex),
@@ -280,10 +275,11 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (uint
 				)
 				if err != nil {
 					return 0, fmt.Errorf("failed to decode RCT amount for output %d: %w", outputIndex, err)
+				} else {
+					fmt.Printf("Output %d: Decoded RCT amount: %d\n", outputIndex, amount)
 				}
 			}
 		} else {
-			// For non-RCT transactions, amount is plaintext
 			amount = output.Amount
 		}
 
@@ -316,9 +312,6 @@ func DerivePublicKeyWithViewTag(txPubKey []byte, privateViewKey []byte, pubSpend
 	viewTag := viewTagHash[0]
 
 	// Reuse existing DerivePublicKey to compute the one-time public key
-	fmt.Printf("txPubKey: %x, privateViewKey: %x, pubSpendKey: %x, index: %d\n",
-		txPubKey, privateViewKey, pubSpendKey, index)
-
 	derivedKey, err := DerivePublicKey(txPubKey, privateViewKey, pubSpendKey, index)
 	if err != nil {
 		return nil, 0, err
@@ -385,7 +378,7 @@ func extractTxPubKey(extra []byte) ([]byte, error) {
 }
 
 // decodeRctAmount decodes an encrypted RCT amount
-func decodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encryptedAmount []byte) (uint64, error) {
+func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encryptedAmount []byte) (uint64, error) {
 	if len(encryptedAmount) != 8 {
 		return 0, fmt.Errorf("invalid encrypted amount length: %d", len(encryptedAmount))
 	}
