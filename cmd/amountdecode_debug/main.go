@@ -82,10 +82,7 @@ func main() {
 	}
 
 	fmt.Println("=== Amount Decoding Test ===")
-	fmt.Printf("\nExpected: %.12f XMR (%d piconeros)\n", expectedXMR, expectedAtomic)
-	fmt.Printf("Expected hex: %016x\n", expectedAtomic)
-	fmt.Printf("\nEncrypted Amount: %x\n", encryptedAmount)
-	fmt.Printf("Output Index: %d\n", outputIndex)
+	fmt.Printf("Expected: %.12f XMR (%d piconeros)\n", expectedXMR, expectedAtomic)
 	fmt.Printf("Decoded Amount: %d piconeros\n", sm)
 	fmt.Printf("Decoded Amount (XMR): %.12f XMR\n", float64(sm)/1e12)
 }
