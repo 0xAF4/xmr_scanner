@@ -223,7 +223,7 @@ func (d *DatabaseMock) GetNodeAddrs(coin string) (*Nodelist, error) {
 }
 
 func (d *DatabaseMock) GetChainHeight(coin string) (int32, string, error) {
-	return 3368326, "f6209b5fd9ab9c4f58ad77be4ad6ce8c97bb3e7d407514d4d19195c7bbabf278", nil
+	return 3524113, "a97cb684c3badccad8b657cf1015fc185690da5ab8aa26573d1ffd7ebb1c3234", nil
 }
 
 func (d *DatabaseMock) ProcessBlock(chainName string, block interface{}) error {
