@@ -3,6 +3,7 @@ package levin
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -104,26 +105,52 @@ func KeccakByte(data []byte) byte {
 }
 
 // DecodeAddress decodes a standard Monero address and returns public spend and view keys
+// DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
 func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error) {
 	b, err := decodeMoneroBase58(addr)
 	if err != nil {
 		return pubSpend, pubView, err
 	}
 
-	// expected minimal length 1 + 32 + 32 + 4 = 69
+	// Check address type by network byte and length
 	if len(b) < 69 {
 		return pubSpend, pubView, errors.New("decoded address too short")
 	}
 
-	// first byte is network tag
-	// next 32 is pubSpend, next 32 is pubView, last 4 is checksum
+	networkByte := b[0]
+
+	// Standard address: 69 bytes (0x12 for mainnet)
+	// Integrated address: 77 bytes (0x13 for mainnet)
+	// Subaddress: 69 bytes (0x2A for mainnet)
+
+	var checksumDataLen int
+	var checksumStart int
+
+	switch {
+	case len(b) == 69 && (networkByte == 0x12 || networkByte == 0x2A):
+		// Standard address or subaddress
+		checksumDataLen = 65
+		checksumStart = 65
+
+	case len(b) == 77 && networkByte == 0x13:
+		// Integrated address (has 8-byte payment_id after pubView)
+		checksumDataLen = 73
+		checksumStart = 73
+
+	default:
+		return pubSpend, pubView, fmt.Errorf("invalid address: unknown format (len=%d, network_byte=0x%02x)", len(b), networkByte)
+	}
+
+	// Extract keys (same position for all types)
 	copy(pubSpend[:], b[1:33])
 	copy(pubView[:], b[33:65])
 
-	// verify checksum
-	payload := b[:65]
+	// Verify checksum
+	payload := b[:checksumDataLen]
 	sum := keccak256(payload)
-	if len(sum) < 4 || !equalBytes(sum[:4], b[65:69]) {
+
+	expectedChecksum := b[checksumStart : checksumStart+4]
+	if !equalBytes(sum[:4], expectedChecksum) {
 		return pubSpend, pubView, errors.New("address checksum mismatch")
 	}
 
