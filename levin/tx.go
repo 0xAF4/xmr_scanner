@@ -211,24 +211,25 @@ func (tx *Transaction) ParseRctSig() {
 	tx.RctRaw = rest
 }
 
-func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (float64, error) {
+func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (float64, uint64, error) {
 	pubSpendKey, pubViewKey, err := DecodeAddress(address) // correct ✅
 	if err != nil {
-		return 0, fmt.Errorf("failed to decode address: %w", err)
+		return 0, 0, fmt.Errorf("failed to decode address: %w", err)
 	}
 
 	privViewKeyBytes, err := hexTo32(privateViewKey) // correct ✅
 	if err != nil {
-		return 0, fmt.Errorf("failed to decode private view key: %w", err)
+		return 0, 0, fmt.Errorf("failed to decode private view key: %w", err)
 	}
 
 	if !verifyViewKeyPair(privViewKeyBytes, pubViewKey[:]) { // correct ✅
-		return 0, fmt.Errorf("private view key does not match address")
+		return 0, 0, fmt.Errorf("private view key does not match address")
 	}
 
-	txPubKey, err := extractTxPubKey(tx.Extra) // хз
+	// txPubKey, err := extractTxPubKey(tx.Extra) // correct ✅
+	txPubKey, _, _, encPID, err := parseTxExtra(tx.Extra)
 	if err != nil {
-		return 0, fmt.Errorf("failed to extract tx public key: %w", err)
+		return 0, 0, fmt.Errorf("failed to extract tx public key: %w", err)
 	}
 
 	// Check each output
@@ -237,19 +238,22 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 
 	for outputIndex, output := range tx.Outputs {
 		// Derive the one-time public key and view tag
-		derivedKey, viewTagByte, err := DerivePublicKeyWithViewTag(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(outputIndex))
+		viewTagByte, err := DeriveViewTag(txPubKey, privViewKeyBytes, uint64(outputIndex))
 		if err != nil {
 			continue
 		}
 
 		// If view tag exists and doesn't match, log it but don't immediately skip — fall back to full derived-key check
-		if output.ViewTag != 0 {
-			if byte(output.ViewTag) != viewTagByte {
-				fmt.Printf("Output %d: View tag mismatch (expected %02x, got %02x), will still check derived key\n", outputIndex, viewTagByte, byte(output.ViewTag))
-				continue
-			} else {
-				fmt.Println("Output view_tag is match✅")
-			}
+		if byte(output.ViewTag) != viewTagByte {
+			fmt.Printf("Output %d: View tag mismatch (expected %02x, got %02x), will still check derived key\n", outputIndex, viewTagByte, byte(output.ViewTag))
+			continue
+		} else {
+			fmt.Println("Output view_tag is match✅")
+		}
+
+		derivedKey, err := DerivePublicKey(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(outputIndex))
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to derive public key for output %d: %w", outputIndex, err)
 		}
 
 		// Compare derived key with output target (this is authoritative)
@@ -274,7 +278,7 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 					tx.RctSignature.EcdhInfo[outputIndex].Amount[:],
 				)
 				if err != nil {
-					return 0, fmt.Errorf("failed to decode RCT amount for output %d: %w", outputIndex, err)
+					return 0, 0, fmt.Errorf("failed to decode RCT amount for output %d: %w", outputIndex, err)
 				} else {
 					fmt.Printf("Output %d: Decoded RCT amount: %.12f\n", outputIndex, amount)
 				}
@@ -287,20 +291,27 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 	}
 
 	if foundOutputs == 0 {
-		return 0, fmt.Errorf("no outputs found for this address")
+		return 0, 0, fmt.Errorf("no outputs found for this address")
 	}
 
-	return totalAmount, nil
+	if encPID != nil {
+		id, _, err := decryptShortPaymentID(txPubKey, privViewKeyBytes, encPID)
+		if err != nil {
+			return 0, 0, err
+		}
+		return totalAmount, id, nil
+	}
+	return totalAmount, 0, nil
 }
 
-func DerivePublicKeyWithViewTag(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte, index uint64) ([]byte, byte, error) {
-	if len(txPubKey) != 32 || len(privateViewKey) != 32 || len(pubSpendKey) != 32 {
-		return nil, 0, fmt.Errorf("invalid key lengths")
+func DeriveViewTag(txPubKey []byte, privateViewKey []byte, index uint64) (byte, error) {
+	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
+		return 0, fmt.Errorf("invalid key lengths")
 	}
 	// Compute shared secret (a * R). Use the shared secret for view tag.
 	sharedSecret, err := SharedSecret(txPubKey, privateViewKey)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
 	// Compute view tag per Monero: H[salt||derivation||varint(index)], salt is 8 bytes "view_tag"
@@ -311,13 +322,7 @@ func DerivePublicKeyWithViewTag(txPubKey []byte, privateViewKey []byte, pubSpend
 	viewTagHash := keccak256(data)
 	viewTag := viewTagHash[0]
 
-	// Reuse existing DerivePublicKey to compute the one-time public key
-	derivedKey, err := DerivePublicKey(txPubKey, privateViewKey, pubSpendKey, index)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return derivedKey, viewTag, nil
+	return viewTag, nil
 }
 
 // verifyViewKeyPair checks if a private view key corresponds to a public view key

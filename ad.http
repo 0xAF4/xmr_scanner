@@ -25,7 +25,7 @@ Content-Type: application/json
 
 {
   "txs_hashes": [
-    "8B891C0352014EA6687A0B51B8128EC238B26C9BD523AA1554DEF1078D822222"
+    "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"
   ],
   "decode_as_json": true
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 
@@ -9,165 +11,155 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// keccak256 returns 32-byte keccak-256 hash.
-func keccak256(data []byte) []byte {
+// parseTxExtra ищет tx pubkey (tag 0x01 -> 32 bytes) и short encrypted payment id
+// (tag 0x02 -> length byte L, content: [nonce_type][...]; nonce_type==0x01 -> next 8 bytes are enc pid)
+func parseTxExtra(extraHex string) (txPubKey []byte, encPID []byte, err error) {
+	extra, err := hex.DecodeString(extraHex)
+	if err != nil {
+		return nil, nil, err
+	}
+	i := 0
+	for i < len(extra) {
+		tag := extra[i]
+		i++
+		switch tag {
+		case 0x00: // padding: skip until non-zero? (in practice padding is zeros)
+			// nothing to consume specifically
+		case 0x01: // TX_EXTRA_TAG_PUBKEY -> next 32 bytes
+			if i+32 > len(extra) {
+				return nil, nil, errors.New("tx extra: truncated pubkey")
+			}
+			txPubKey = make([]byte, 32)
+			copy(txPubKey, extra[i:i+32])
+			i += 32
+		case 0x02: // TX_EXTRA_NONCE -> next byte is length L, then L bytes of nonce
+			if i >= len(extra) {
+				return nil, nil, errors.New("tx extra: nonce length missing")
+			}
+			L := int(extra[i])
+			i++
+			if i+L > len(extra) {
+				return nil, nil, errors.New("tx extra: nonce truncated")
+			}
+			nonce := extra[i : i+L]
+			i += L
+			// nonce[0] indicates type:
+			// 0x00 -> plain payment id (32 bytes)
+			// 0x01 -> encrypted short payment id (8 bytes)
+			if len(nonce) >= 1 && nonce[0] == 0x01 && len(nonce) >= 1+8 {
+				encPID = make([]byte, 8)
+				copy(encPID, nonce[1:1+8])
+				// we can return early (but still we keep txPubKey if already found)
+			}
+		default:
+			// unknown tag — many tags are followed by variable-length data in real monero impl,
+			// but common tags we care about are handled above. To be safe, try to bail out.
+			// In many txs unknown padding or other data may appear; we cannot reliably skip size here.
+			// So we continue (best-effort) — but to avoid infinite loop, just continue.
+		}
+	}
+	return txPubKey, encPID, nil
+}
+
+// decryptShortPaymentID:
+// - txPubKey: 32-byte tx public key (from extra tag 0x01)
+// - privViewKey: 32-byte private view key (hex-decoded, little-endian)
+// - encPID: 8-byte encrypted payment id (from nonce type 0x01)
+// returns uint64 payment id (interpreted little-endian), and raw 8 bytes
+func decryptShortPaymentID(txPubKey, privViewKey, encPID []byte) (uint64, []byte, error) {
+	if len(txPubKey) != 32 {
+		return 0, nil, errors.New("txPubKey must be 32 bytes")
+	}
+	if len(privViewKey) != 32 {
+		return 0, nil, errors.New("privViewKey must be 32 bytes")
+	}
+	if len(encPID) != 8 {
+		return 0, nil, errors.New("encPID must be 8 bytes")
+	}
+
+	// Decode txPubKey as Point
+	R := new(edwards25519.Point)
+	if _, err := R.SetBytes(txPubKey); err != nil {
+		return 0, nil, fmt.Errorf("invalid tx pubkey: %w", err)
+	}
+
+	// Load private view key as scalar (Monero private keys are scalars mod l)
+	// Use SetCanonicalBytes to set scalar from 32-byte little-endian encoding (must be canonical)
+	scalar := new(edwards25519.Scalar)
+	if _, err := scalar.SetCanonicalBytes(privViewKey); err != nil {
+		// Try SetBytesWithClamping as fallback if not canonical
+		if _, err2 := scalar.SetBytesWithClamping(privViewKey); err2 != nil {
+			return 0, nil, fmt.Errorf("invalid privViewKey: %v / %v", err, err2)
+		}
+	}
+
+	// shared = a * R
+	sharedPoint := new(edwards25519.Point).ScalarMult(scalar, R)
+
+	// multiply by 8 (Monero code uses 8*R etc in derivations)
+	eight := ScalarFromUint64(8)
+	sharedPoint = new(edwards25519.Point).ScalarMult(eight, sharedPoint)
+
+	// serialize shared point to bytes (compressed)
+	sharedBytes := sharedPoint.Bytes() // 32 bytes
+
+	// compute keccak256(sharedBytes || 0x8d)
 	h := sha3.NewLegacyKeccak256()
-	h.Write(data)
-	return h.Sum(nil)
-}
+	h.Write(sharedBytes)
+	h.Write([]byte{0x8d})
+	hash := h.Sum(nil) // 32 bytes
 
-// keccak512 returns 64-byte legacy keccak-512 hash.
-func keccak512(data []byte) []byte {
-	h := sha3.NewLegacyKeccak512()
-	h.Write(data)
-	return h.Sum(nil)
-}
-
-// encodeVarint encodes n as Monero varint (LE base-128).
-func encodeVarint(n uint64) []byte {
-	var buf []byte
-	for {
-		b := byte(n & 0x7F)
-		n >>= 7
-		if n != 0 {
-			b |= 0x80
-		}
-		buf = append(buf, b)
-		if n == 0 {
-			break
-		}
-	}
-	return buf
-}
-
-func mustHex(s string) []byte {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return b
-}
-
-// hashToPoint: hash input -> scalar -> scalar*G -> *8 (returns 32-byte encoded point)
-func hashToPoint(pBytes []byte) ([]byte, error) {
-	// Use keccak512 to produce 64 bytes suitable for SetUniformBytes.
-	h := keccak512(pBytes) // 64 bytes
-
-	// Create scalar s from 64-byte wide input (SetUniformBytes reduces mod l).
-	s := new(edwards25519.Scalar)
-	if _, err := s.SetUniformBytes(h); err != nil {
-		return nil, fmt.Errorf("SetUniformBytes failed: %w", err)
-	}
-
-	// point = s * G
-	point := new(edwards25519.Point).ScalarBaseMult(s)
-
-	// Multiply point by 8 (cofactor clearing): make scalar 8 and scalar-mult
-	eightBytes := make([]byte, 32)
-	eightBytes[0] = 8
-	eight := new(edwards25519.Scalar)
-	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
-		return nil, fmt.Errorf("creating scalar 8 failed: %w", err)
-	}
-
-	result := new(edwards25519.Point).ScalarMult(eight, point)
-	return result.Bytes(), nil
-}
-
-// decodeRctAmount decrypts a RingCT encrypted amount (8 bytes)
-// decodeRctAmount decrypts a RingCT encrypted amount (8 bytes)
-func decodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encryptedAmount []byte) (uint64, error) {
-	if len(encryptedAmount) != 8 {
-		return 0, fmt.Errorf("invalid encrypted amount length: %d", len(encryptedAmount))
-	}
-
-	// Parse R (tx pubkey)
-	Rpt, err := new(edwards25519.Point).SetBytes(txPubKey)
-	if err != nil {
-		return 0, fmt.Errorf("invalid tx public key: %w", err)
-	}
-
-	// Parse scalar a (private view key)
-	a := new(edwards25519.Scalar)
-	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
-		return 0, fmt.Errorf("invalid private view key scalar bytes: %w", err)
-	}
-
-	// Scalar eight = 8
-	eightBytes := make([]byte, 32)
-	eightBytes[0] = 8
-	eight := new(edwards25519.Scalar)
-	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
-		return 0, fmt.Errorf("creating scalar 8 failed: %w", err)
-	}
-
-	// eightA = eight * a
-	eightA := new(edwards25519.Scalar).Multiply(eight, a)
-
-	// Compute shared secret: sharedPoint = (8*a) * R
-	sharedPoint := new(edwards25519.Point).ScalarMult(eightA, Rpt)
-	sharedBytes := sharedPoint.Bytes()
-
-	// Monero hash_to_scalar (Hs):
-	// 1. Concatenate 8aR with varint(outputIndex)
-	// 2. Hash with keccak256 to get 32 bytes
-	// 3. Interpret as scalar (reduce mod l) - this is Hs(8aR || i)
-	hashInput := append(sharedBytes, encodeVarint(outputIndex)...)
-	hsHash := keccak256(hashInput) // 32 bytes
-
-	// For sc_reduce32: pad the 32-byte hash to 64 bytes for SetUniformBytes
-	// SetUniformBytes expects 64 bytes and reduces mod l internally
-	hsHash64 := make([]byte, 64)
-	copy(hsHash64, hsHash)
-
-	hsScalar := new(edwards25519.Scalar)
-	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
-		return 0, fmt.Errorf("hash_to_scalar failed: %w", err)
-	}
-
-	// Get the canonical bytes of the scalar Hs
-	hsBytes := hsScalar.Bytes()
-
-	// Compute amount mask: keccak256("amount" || Hs)
-	amountMask := keccak256(append([]byte("amount"), hsBytes...))
-
-	// XOR first 8 bytes (little-endian) to get amount
-	var amount uint64
+	// XOR first 8 bytes of hash with encPID
+	key := hash[:8]
+	pidBytes := make([]byte, 8)
 	for i := 0; i < 8; i++ {
-		decrypted := encryptedAmount[i] ^ amountMask[i]
-		amount |= uint64(decrypted) << (8 * i)
+		pidBytes[i] = encPID[i] ^ key[i]
 	}
 
-	return amount, nil
+	// interpret as little-endian uint64
+	id := binary.LittleEndian.Uint64(pidBytes)
+	return id, pidBytes, nil
+}
+
+func ScalarFromUint64(v uint64) *edwards25519.Scalar {
+	var b [32]byte
+	binary.LittleEndian.PutUint64(b[:8], v) // кладём в первые 8 байт
+	sc, err := new(edwards25519.Scalar).SetCanonicalBytes(b[:])
+	if err != nil {
+		panic(err) // или обрабатывай ошибку
+	}
+	return sc
 }
 
 func main() {
-	txPubKey := mustHex("b8cdf95be694f3b0cbb5174ea1945f95097706adfc889a8d6be92d42b0cd06ff")
-	privateViewKey := mustHex("7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d61f604")
-	encryptedAmount := mustHex("277ede35c7f0cf5b")
-	outputIndex := uint64(0)
+	// ====== входные данные (пример из твоего tx.extra) ======
+	extraHex := "01b8cdf95be694f3b0cbb5174ea1945f95097706adfc889a8d6be92d42b0cd06ff02090154c7cf8dc2d8c619"
+	// privViewKeyHex нужно поставить свою — без неё дешифровка невозможна.
+	// Пример: privViewKeyHex := "..." — 32 байта (64 hex chars)
+	privViewKeyHex := "7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d61f604"
 
-	expectedXMR := 0.033592475285
-	expectedAtomic := uint64(expectedXMR * 1e12)
-
-	fmt.Println("=== Amount Decoding Test ===")
-	fmt.Printf("TX PubKey: %x\n", txPubKey)
-	fmt.Printf("Private View Key: %x\n", privateViewKey)
-
-	sm, err := decodeRctAmount(txPubKey, privateViewKey, outputIndex, encryptedAmount)
+	txPubKey, encPID, err := parseTxExtra(extraHex)
+	fmt.Printf("txPubKey: %X\n", txPubKey)
+	fmt.Printf("encPID: %X\n", encPID)
 	if err != nil {
-		log.Fatalf("Error decoding RCT amount: %v", err)
+		log.Fatalf("parseTxExtra error: %v", err)
+	}
+	if txPubKey == nil {
+		log.Fatalf("tx public key not found in extra")
+	}
+	if encPID == nil {
+		log.Fatalf("encrypted short payment id (nonce type 0x01) not found in extra")
 	}
 
-	fmt.Printf("\n=== Results ===\n")
-	fmt.Printf("Expected: %.12f XMR (%d piconeros)\n", expectedXMR, expectedAtomic)
-	fmt.Printf("Decoded Amount: %d piconeros\n", sm)
-	fmt.Printf("Decoded Amount (XMR): %.12f XMR\n", float64(sm)/1e12)
-
-	if sm == expectedAtomic {
-		fmt.Println("\n✅ SUCCESS! Amounts match perfectly!")
-	} else {
-		fmt.Println("\n❌ FAIL! Amounts don't match")
-		fmt.Printf("Difference: %d piconeros\n", int64(sm)-int64(expectedAtomic))
+	privViewKey, err := hex.DecodeString(privViewKeyHex)
+	if err != nil {
+		log.Fatalf("privViewKey hex decode: %v", err)
 	}
+
+	id, pidBytes, err := decryptShortPaymentID(txPubKey, privViewKey, encPID)
+	if err != nil {
+		log.Fatalf("decryptShortPaymentID error: %v", err)
+	}
+	fmt.Printf("Payment ID bytes (little-endian hex): %x\n", pidBytes)
+	fmt.Printf("Payment ID decimal: %d\n", id)
 }
