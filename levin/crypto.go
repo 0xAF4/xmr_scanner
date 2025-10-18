@@ -25,19 +25,13 @@ func init() {
 }
 
 // decodeMoneroBase58 decodes Monero's special base58 string into bytes.
-// It expects groups of 11 chars -> 8 bytes and final 7 chars -> 5 bytes for standard address.
 func decodeMoneroBase58(s string) ([]byte, error) {
-	// remove spaces/newlines just in case
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, errors.New("empty string")
 	}
 
-	// standard address length is 95 chars -> 8 groups of 11 + last 7
-	// compute expected groups
 	out := make([]byte, 0)
-
-	// process in chunks: 11 chars -> 8 bytes, except last which may be 7 -> 5 bytes
 	i := 0
 	for i < len(s) {
 		rem := len(s) - i
@@ -56,7 +50,6 @@ func decodeMoneroBase58(s string) ([]byte, error) {
 		chunk := s[i : i+chunkLenChars]
 		i += chunkLenChars
 
-		// convert chunk to integer
 		val := big.NewInt(0)
 		for _, ch := range []byte(chunk) {
 			idx := b58Map[ch]
@@ -67,10 +60,8 @@ func decodeMoneroBase58(s string) ([]byte, error) {
 			val.Add(val, big.NewInt(int64(idx)))
 		}
 
-		// extract bytes big-endian chunkLenBytes (Monero base58 uses big-endian per chunk)
 		buf := make([]byte, chunkLenBytes)
 		tmp := new(big.Int).Set(val)
-		// fill from the end
 		for j := chunkLenBytes - 1; j >= 0; j-- {
 			b := new(big.Int)
 			b.Mod(tmp, big.NewInt(256))
@@ -84,7 +75,6 @@ func decodeMoneroBase58(s string) ([]byte, error) {
 	return out, nil
 }
 
-// DecodeAddressRaw decodes monero base58 address and returns raw decoded bytes (for debug)
 func DecodeAddressRaw(s string) ([]byte, error) {
 	return decodeMoneroBase58(s)
 }
@@ -95,7 +85,6 @@ func keccak256(data []byte) []byte {
 	return h.Sum(nil)
 }
 
-// KeccakByte returns the first byte of keccak256(data) for convenience in tests
 func KeccakByte(data []byte) byte {
 	h := keccak256(data)
 	if len(h) == 0 {
@@ -104,26 +93,18 @@ func KeccakByte(data []byte) byte {
 	return h[0]
 }
 
-// DecodeAddress decodes a standard Monero address and returns public spend and view keys
 // DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
-// DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
-// For integrated addresses, also returns the 8-byte payment_id
 func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error) {
 	b, err := decodeMoneroBase58(addr)
 	if err != nil {
 		return pubSpend, pubView, err
 	}
 
-	// Check address type by network byte and length
 	if len(b) < 69 {
 		return pubSpend, pubView, errors.New("decoded address too short")
 	}
 
 	networkByte := b[0]
-	
-	// Standard address: 69 bytes (0x12 for mainnet)
-	// Integrated address: 77 bytes (0x13 for mainnet)
-	// Subaddress: 69 bytes (0x2A for mainnet)
 	
 	var checksumDataLen int
 	var checksumStart int
@@ -181,7 +162,7 @@ func ExtractPaymentID(addr string) ([]byte, error) {
 	}
 
 	// Standard or subaddress - no payment_id
-	return []byte{}, nil
+	return nil, nil
 }
 
 func equalBytes(a, b []byte) bool {
@@ -196,8 +177,6 @@ func equalBytes(a, b []byte) bool {
 	return true
 }
 
-// DerivePublicKey implements Monero's derive_public_key
-// P = Hs(8*a*R || index)*G + B
 // DerivePublicKey implements Monero's derive_public_key
 // P = Hs(8*a*R || index)*G + B
 func DerivePublicKey(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte, index uint64) ([]byte, error) {
@@ -240,7 +219,53 @@ func DerivePublicKey(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte,
 	return P.Bytes(), nil
 }
 
-// helper: parse hex key
+// DerivePublicKeyWithPaymentID implements Monero's derive_public_key for integrated addresses
+// P = Hs(8*a*R || index || payment_id)*G + B
+func DerivePublicKeyWithPaymentID(txPubKey []byte, privateViewKey []byte, pubSpendKey []byte, index uint64, paymentID []byte) ([]byte, error) {
+	if len(txPubKey) != 32 || len(privateViewKey) != 32 || len(pubSpendKey) != 32 {
+		return nil, errors.New("invalid key lengths")
+	}
+	
+	if len(paymentID) != 8 {
+		return nil, errors.New("payment_id must be 8 bytes")
+	}
+
+	// Step 1: Calculate shared secret (derivation = 8 * a * R)
+	derivation, err := SharedSecret(txPubKey, privateViewKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Create hash input: derivation || varint(index) || payment_id
+	idxBytes := encodeVarint(index)
+	hashInput := append(derivation, idxBytes...)
+	hashInput = append(hashInput, paymentID...)
+
+	// Step 3: Hash to scalar: Hs(derivation || index || payment_id)
+	h := keccak256(hashInput)
+
+	// Step 4: Convert to edwards25519 scalar using SetBytesWithClamping
+	var s edwards25519.Scalar
+	_, err = s.SetBytesWithClamping(h)
+	if err != nil {
+		return nil, errors.New("failed to convert hash to scalar")
+	}
+
+	// Step 5: Calculate Hs(...)*G
+	hsG := new(edwards25519.Point).ScalarBaseMult(&s)
+
+	// Step 6: Parse public spend key B
+	var B edwards25519.Point
+	if _, err := B.SetBytes(pubSpendKey); err != nil {
+		return nil, errors.New("invalid public spend key")
+	}
+
+	// Step 7: P = Hs(...)*G + B
+	P := new(edwards25519.Point).Add(hsG, &B)
+
+	return P.Bytes(), nil
+}
+
 func hexTo32(s string) ([]byte, error) {
 	b, err := hex.DecodeString(s)
 	if err != nil {
@@ -252,86 +277,21 @@ func hexTo32(s string) ([]byte, error) {
 	return b, nil
 }
 
-// sc_reduce32 reduces a 32-byte array modulo the ed25519 group order l.
-func sc_reduce32(in []byte) []byte {
-	// ed25519 order L = 2^252 + 27742317777372353535851937790883648493
-	// We'll perform reduction using big.Int
-	// Above is placeholder; instead use canonical order
-	// Real L:
-	L, _ := new(big.Int).SetString("723700557733226221397318656304299424085711635937990760600195093828545425057", 10)
-
-	// Monero treats byte arrays as little-endian for scalar reduction.
-	// Convert little-endian input to big-endian for big.Int by reversing bytes.
-	rev := make([]byte, len(in))
-	for i := 0; i < len(in); i++ {
-		rev[i] = in[len(in)-1-i]
-	}
-	v := new(big.Int).SetBytes(rev)
-	v.Mod(v, L)
-	// produce 32-byte little-endian
-	res := make([]byte, 32)
-	tmp := new(big.Int).Set(v)
-	for i := 0; i < 32; i++ {
-		if tmp.Sign() == 0 {
-			res[i] = 0
-		} else {
-			byteVal := new(big.Int).And(tmp, big.NewInt(0xff))
-			res[i] = byte(byteVal.Int64())
-			tmp.Rsh(tmp, 8)
-		}
-	}
-	return res
-}
-
-// SharedSecret computes shared = a * R where a is private view key and R is tx public key
-// func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
-// 	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
-// 		return nil, errors.New("invalid key lengths")
-// 	}
-// 	var R edwards25519.Point
-// 	if _, err := R.SetBytes(txPubKey); err != nil {
-// 		return nil, err
-// 	}
-// 	var a edwards25519.Scalar
-// 	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
-// 		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
-// 	}
-
-// 	// shared = a * R
-// 	shared := new(edwards25519.Point).ScalarMult(&a, &R)
-
-// 	// Multiply by cofactor 8 to match Monero's ge_mul8( a * R ) used for key_derivation
-// 	// Create scalar 8 (little-endian)
-// 	eightBytes := make([]byte, 32)
-// 	eightBytes[0] = 8
-// 	var eight edwards25519.Scalar
-// 	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
-// 		// fallback: set via SetUniformBytes (shouldn't happen for small scalar 8)
-// 		eight.SetUniformBytes(append(eightBytes, eightBytes...))
-// 	}
-// 	shared8 := new(edwards25519.Point).ScalarMult(&eight, shared)
-// 	return shared8.Bytes(), nil
-// }
-
-// SharedSecret computes shared = (8*a) * R where a is private view key and R is tx public key
 func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
 	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
 		return nil, errors.New("invalid key lengths")
 	}
 
-	// Parse tx public key R
 	var R edwards25519.Point
 	if _, err := R.SetBytes(txPubKey); err != nil {
 		return nil, err
 	}
 
-	// Parse private view key a
 	var a edwards25519.Scalar
 	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
 		a.SetUniformBytes(append(privateViewKey, privateViewKey...))
 	}
 
-	// Multiply private key by 8: (8*a)
 	eightBytes := make([]byte, 32)
 	eightBytes[0] = 8
 	var eight edwards25519.Scalar
@@ -339,11 +299,9 @@ func SharedSecret(txPubKey []byte, privateViewKey []byte) ([]byte, error) {
 		eight.SetUniformBytes(append(eightBytes, eightBytes...))
 	}
 
-	// 8*a
 	var eightA edwards25519.Scalar
 	eightA.Multiply(&eight, &a)
 
-	// shared = (8*a) * R
 	shared := new(edwards25519.Point).ScalarMult(&eightA, &R)
 
 	return shared.Bytes(), nil
