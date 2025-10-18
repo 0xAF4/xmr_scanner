@@ -106,6 +106,8 @@ func KeccakByte(data []byte) byte {
 
 // DecodeAddress decodes a standard Monero address and returns public spend and view keys
 // DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
+// DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
+// For integrated addresses, also returns the 8-byte payment_id
 func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error) {
 	b, err := decodeMoneroBase58(addr)
 	if err != nil {
@@ -118,25 +120,25 @@ func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error)
 	}
 
 	networkByte := b[0]
-
+	
 	// Standard address: 69 bytes (0x12 for mainnet)
 	// Integrated address: 77 bytes (0x13 for mainnet)
 	// Subaddress: 69 bytes (0x2A for mainnet)
-
+	
 	var checksumDataLen int
 	var checksumStart int
-
+	
 	switch {
 	case len(b) == 69 && (networkByte == 0x12 || networkByte == 0x2A):
 		// Standard address or subaddress
 		checksumDataLen = 65
 		checksumStart = 65
-
+		
 	case len(b) == 77 && networkByte == 0x13:
 		// Integrated address (has 8-byte payment_id after pubView)
 		checksumDataLen = 73
 		checksumStart = 73
-
+		
 	default:
 		return pubSpend, pubView, fmt.Errorf("invalid address: unknown format (len=%d, network_byte=0x%02x)", len(b), networkByte)
 	}
@@ -148,13 +150,38 @@ func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error)
 	// Verify checksum
 	payload := b[:checksumDataLen]
 	sum := keccak256(payload)
-
+	
 	expectedChecksum := b[checksumStart : checksumStart+4]
 	if !equalBytes(sum[:4], expectedChecksum) {
 		return pubSpend, pubView, errors.New("address checksum mismatch")
 	}
 
 	return pubSpend, pubView, nil
+}
+
+// ExtractPaymentID extracts payment_id from an integrated address
+// Returns empty slice for standard addresses
+func ExtractPaymentID(addr string) ([]byte, error) {
+	b, err := decodeMoneroBase58(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(b) < 69 {
+		return nil, errors.New("decoded address too short")
+	}
+
+	networkByte := b[0]
+	
+	// Only integrated addresses (0x13) have payment_id
+	if len(b) == 77 && networkByte == 0x13 {
+		paymentID := make([]byte, 8)
+		copy(paymentID, b[65:73])
+		return paymentID, nil
+	}
+
+	// Standard or subaddress - no payment_id
+	return []byte{}, nil
 }
 
 func equalBytes(a, b []byte) bool {
