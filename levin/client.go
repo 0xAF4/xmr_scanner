@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"slices"
 	"time"
 )
@@ -206,16 +207,16 @@ func (c *Client) ReadMessage() (*Header, *PortableStorage, error) {
 		return nil, nil, errors.New("3:" + err.Error())
 	}
 
-	// if respHeader.Command == NotifyResponseGetObjects {
-	// 	fileName := fmt.Sprintf("dump_985_%d.bin", time.Now().Unix())
-	// 	if err := os.WriteFile(fileName, responseBodyB, 0644); err != nil {
-	// 		fmt.Printf("Ошибка сохранения дампа в %s: %v\n", fileName, err)
-	// 	} else {
-	// 		fmt.Printf("Дамп сохранён в %s\n", fileName)
-	// 	}
+	if respHeader.Command == NotifyResponseGetObjects {
+		fileName := fmt.Sprintf("dump_985_%d.bin", time.Now().Unix())
+		if err := os.WriteFile(fileName, responseBodyB, 0644); err != nil {
+			fmt.Printf("Ошибка сохранения дампа в %s: %v\n", fileName, err)
+		} else {
+			fmt.Printf("Дамп сохранён в %s\n", fileName)
+		}
 
-	// 	os.Exit(985)
-	// }
+		os.Exit(985)
+	}
 
 	ps, err := NewPortableStorageFromBytes(responseBodyB)
 	if err != nil {

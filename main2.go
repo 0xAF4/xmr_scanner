@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
 	"xmr_scanner/levin"
 )
 
@@ -22,9 +21,12 @@ var PrivateViewKey = "7c14de0bd019c6cda063c2e458083d3c9f891a4b962cb730a83352da8d
 // var Address = "4C34C1tSeyS2fy2CeYPhyjUjTYSNnkvg1a2zj2F6YuSsSQCWac6Pp22RAfCG7djHbM3imHtizTwwoZW4TwFEdY97GSKXqfqWkxw13Gk6c9"
 // var PrivateViewKey = "98540b36f09f5e5439f98f048e81e32fbbf19f836c962fef1510d3af605f0102"
 
+const fileName = "block-json.json"
+
 func main() {
 	// blockHash, err := os.ReadFile("dump_985.bin")
 	blockHash, err := os.ReadFile("dump_985_2_1760777348.bin")
+	// blockHash, err := os.ReadFile("dump_985_3.bin")
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
@@ -65,31 +67,65 @@ func main() {
 			noty.NotifyWithLevel(fmt.Sprintf("Error processing block header %d: %v", i, err), LevelError)
 			continue
 		}
-
 		// noty.NotifyWithLevel(fmt.Sprintf("Block %d processed successfully", i), LevelSuccess)
 		// data1, _ := json.MarshalIndent(block, "", "  ")
 		// noty.NotifyWithLevel("\n"+string(data1), LevelSuccess)
 		// noty.NotifyWithLevel("=========", LevelSuccess)
 
 		for _, tx := range block.TXs {
-			if !slices.Contains([]string{"8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222", "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"}, fmt.Sprintf("%x", tx.Hash)) {
-				continue
-			}
+			// if !slices.Contains([]string{"	", "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"}, fmt.Sprintf("%x", tx.Hash)) {
+			// 	continue
+			// }
 			tx.ParseTx()
 			tx.ParseRctSig()
-			noty.NotifyWithLevel(fmt.Sprintf("  ------- TX Hash: %X", tx.Hash), LevelSuccess)
-			data2, _ := json.MarshalIndent(tx, "", "  ")
-			noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
+			// noty.NotifyWithLevel(fmt.Sprintf("  ------- TX Hash: %X", tx.Hash), LevelSuccess)
+			// data2, _ := json.MarshalIndent(tx, "", "  ")
+			// noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
 
-			noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
-			funds, paymentID, err := tx.CheckOutputs(Address, PrivateViewKey)
-			if err != nil {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
-			} else {
-				noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx: %.12f; PaymentID: %d", funds, paymentID), LevelWarning)
-
-			}
+			// noty.NotifyWithLevel(fmt.Sprintf("%X", tx.RctRaw), LevelSuccess)
+			// funds, paymentID, err := tx.CheckOutputs(Address, PrivateViewKey)
+			// if err != nil {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs error: %s", err), LevelError)
+			// } else {
+			// 	noty.NotifyWithLevel(fmt.Sprintf("  - TX checkOutputs find in tx: %.12f; PaymentID: %d", funds, paymentID), LevelWarning)
+			// }
 		}
 
+		converted := ConvertTxs(block.TXs)
+		jsonData, err := json.MarshalIndent(converted, "", "    ")
+		if err != nil {
+			panic(err)
+		}
+
+		if err := os.WriteFile(fileName, jsonData, 0o644); err != nil {
+			panic(err)
+		}
 	}
+}
+
+type TxAttrib map[string]interface{}
+
+func ConvertTxs(data interface{}) interface{} {
+	txs := data.([]*levin.Transaction)
+
+	Transactions := []interface{}{}
+	for _, tx := range txs {
+		o := []TxAttrib{}
+		for outputIndex, out := range tx.Outputs {
+			o = append(o, TxAttrib{
+				"Index":   outputIndex,
+				"ViewTag": out.ViewTag,
+				"Target":  fmt.Sprintf("%x", out.Target),
+				"Amount":  fmt.Sprintf("%x", tx.RctSignature.EcdhInfo[outputIndex].Amount),
+			})
+		}
+
+		Transactions = append(Transactions, map[string]interface{}{
+			"txid":    fmt.Sprintf("%x", tx.Hash),
+			"extra":   fmt.Sprintf("%x", tx.Extra),
+			"outputs": o,
+		})
+	}
+
+	return Transactions
 }

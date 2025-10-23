@@ -25,7 +25,7 @@ type Block struct {
 		Height     uint64     `json:"height"`
 		OutputNum  uint64     `json:"-"`
 		Outs       []TxOutput `json:"vout"`
-		ExtraSize  uint8      `json:"-"`
+		ExtraSize  uint64     `json:"-"`
 		Extra      ByteArray  `json:"extra"`
 	} `json:"miner_tx"`
 
@@ -74,16 +74,17 @@ func (block *Block) FullfillBlockHeader() error {
 		out.Amount, _ = ReadVarint(reader)
 		reader.Seek(1, io.SeekCurrent)
 		reader.Read(out.Target[:])
+		b, _ := reader.ReadByte()
+		out.ViewTag = HByte(b)
 		outs = append(outs, out)
 	}
 	block.MinerTx.Outs = outs
 	//----
+	block.MinerTx.ExtraSize, _ = ReadVarint(reader)
+	extra := make([]byte, block.MinerTx.ExtraSize)
+	reader.Read(extra)
+	block.MinerTx.Extra = extra
 	reader.Seek(1, io.SeekCurrent)
-	block.MinerTx.ExtraSize, _ = ReadUint8(reader)
-	block.MinerTx.ExtraSize += 1
-	tempExtra := make([]byte, block.MinerTx.ExtraSize)
-	reader.Read(tempExtra[:])
-	block.MinerTx.Extra = tempExtra
 	//----
 	block.TxsCount, _ = ReadVarint(reader)
 	for i := 0; i <= int(block.TxsCount)-1; i++ {
