@@ -1,0 +1,9 @@
+if you want to donate, you are welcome 
+
+btc: bc1q4jwgmqkskegkpprpcu8gx4f2lzw9al8gtptcwe
+
+ltc: ltc1q03hnm4muegvxukrp82y9npxeg2hx7n6fcm9w02
+
+doge: DNfU8h7CyXY4Bt4WrX6yZ73ewYNrc3xx9e
+
+bch: bitcoincash:qr725dd8xds6xa5z8gqtsrsw2sjn6emh95ma0eqjh9
