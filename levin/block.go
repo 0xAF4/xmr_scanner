@@ -97,3 +97,7 @@ func (block *Block) FullfillBlockHeader() error {
 
 	return nil
 }
+
+func (b *Block) GetBlockHash() string {
+	
+}

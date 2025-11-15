@@ -237,7 +237,6 @@ func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64)
 
 	// Hash with Keccak256
 	h := keccak256(hashInput)
-
 	// Apply sc_reduce32
 	scalarBytes := sc_reduce32(h)
 
@@ -250,7 +249,6 @@ func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64)
 
 	// Calculate Hs(derivation || i) * G
 	hsG := new(edwards25519.Point).ScalarBaseMult(&s)
-
 	// Parse B (public spend key)
 	var B edwards25519.Point
 	if _, err := B.SetBytes(pubSpendKey); err != nil {
@@ -260,7 +258,6 @@ func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64)
 	P := new(edwards25519.Point).Add(hsG, &B)
 	// result1 := hex.EncodeToString(P1.Bytes())
 	// result2 := hex.EncodeToString(hsG.Bytes())
-
 	return P.Bytes(), nil
 }
 

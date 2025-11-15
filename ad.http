@@ -20,7 +20,7 @@ Content-Type: application/json
 }
 
 ###
-POST https://xmr.unshakled.net:443/get_transactions
+POST https://xmr3.doggett.tech:18089/get_transactions
 Content-Type: application/json
 
 {
