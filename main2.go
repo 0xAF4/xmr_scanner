@@ -74,16 +74,14 @@ func main() {
 			}
 		}
 	}
-	h := uint64(3524113)
 	for _, block := range blocksArr {
 		block.FullfillBlockHeader()
-		h += 1
-		block.BlockHeight = h
 		noty.NotifyWithLevel(fmt.Sprintf("Height: %d", block.BlockHeight), LevelSuccess)
 		noty.NotifyWithLevel(fmt.Sprintf("PreviousBlockHash: %X", block.PreviousBlockHash), LevelSuccess)
-		noty.NotifyWithLevel(fmt.Sprintf("Hash: %s", block.GetBlockHash()), LevelSuccess)
+		noty.NotifyWithLevel(fmt.Sprintf("Hash: %s", block.GetBlockId()), LevelSuccess)
+		noty.NotifyWithLevel("Expected: 433b6e084ac5f8a3e7f54d686f3ca25733177c4111df09117aecd3ffec60661e", LevelSuccess)
+		os.Exit(991)
 	}
-	os.Exit(991)
 
 	fees := []Fee{}
 	for _, block := range blocksArr {

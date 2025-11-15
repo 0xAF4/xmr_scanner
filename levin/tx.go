@@ -34,6 +34,7 @@ type TxInput struct {
 type TxOutput struct {
 	Amount  uint64 `json:"amount"`
 	Target  Hash   `json:"key"`
+	Type    byte   `json:"type"`
 	ViewTag HByte  `json:"view_tag"`
 }
 

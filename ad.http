@@ -16,7 +16,11 @@ Content-Type: application/json
   "jsonrpc": "2.0",
   "id": "0",
   "method": "get_block",
-  "params": { "height": 3491126 }
+  "params": { 
+    "height": 3524114,
+    "decode_as_json": true
+  }
+  
 }
 
 ###
