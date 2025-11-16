@@ -306,6 +306,97 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 	return totalAmount, 0, nil
 }
 
+func (tx *Transaction) CalculateBuff() []byte {
+	var buf bytes.Buffer
+
+	// Version
+	buf.Write(encodeVarint(tx.Version))
+
+	// Unlock time
+	buf.Write(encodeVarint(tx.UnlockTime))
+
+	// Inputs
+	buf.Write(encodeVarint(uint64(len(tx.Inputs))))
+	for _, input := range tx.Inputs {
+		buf.WriteByte(input.Type)
+
+		if input.Type == 0xff { // Coinbase
+			buf.Write(encodeVarint(input.Height))
+		} else if input.Type == 0x02 { // TxIn to key
+			buf.Write(encodeVarint(input.Amount))
+			buf.Write(encodeVarint(uint64(len(input.KeyOffsets))))
+			for _, offset := range input.KeyOffsets {
+				buf.Write(encodeVarint(offset))
+			}
+			buf.Write(input.KeyImage[:])
+		}
+	}
+
+	// Outputs
+	buf.Write(encodeVarint(uint64(len(tx.Outputs))))
+	for _, output := range tx.Outputs {
+		buf.Write(encodeVarint(output.Amount))
+		buf.WriteByte(output.Type)
+		buf.Write(output.Target[:])
+
+		// View tag for tagged outputs
+		if output.Type == TxOutToTaggedKey {
+			buf.WriteByte(byte(output.ViewTag))
+		}
+	}
+
+	// Extra
+	buf.Write(encodeVarint(uint64(len(tx.Extra))))
+	buf.Write(tx.Extra)
+
+	return buf.Bytes()
+}
+
+func (tx *Transaction) CalculateRctHash() []byte {
+	if tx.RctSignature == nil {
+		return keccak256([]byte{0})
+	}
+
+	var buf bytes.Buffer
+
+	// RCT type
+	buf.Write(encodeVarint(tx.RctSignature.Type))
+
+	// Transaction fee (for RCT types that include it)
+	if tx.RctSignature.Type > 0 {
+		buf.Write(encodeVarint(tx.RctSignature.TxnFee))
+	}
+
+	// ECDH info (encrypted amounts)
+	for _, ecdh := range tx.RctSignature.EcdhInfo {
+		buf.Write(ecdh.Amount[:])
+	}
+
+	// Output public keys
+	for _, outPk := range tx.RctSignature.OutPk {
+		buf.Write(outPk[:])
+	}
+
+	return keccak256(buf.Bytes())
+}
+
+func (tx *Transaction) CalcHash() {
+	// Step 1: Hash the transaction prefix
+	prefixHash := keccak256(tx.CalculateBuff())
+
+	// Step 2: Hash the RCT signature base
+	rctHash := tx.CalculateRctHash()
+
+	// Step 3: Combine both hashes
+	txHashingBlob := make([]byte, 64)
+	copy(txHashingBlob[0:32], prefixHash)
+	copy(txHashingBlob[32:64], rctHash)
+
+	// Step 4: Final hash
+	finalHash := keccak256(txHashingBlob)
+	copy(tx.Hash[:], finalHash)
+}
+
 func DeriveViewTag(txPubKey []byte, privateViewKey []byte, index uint64) (byte, error) {
 	if len(txPubKey) != 32 || len(privateViewKey) != 32 {
 		return 0, fmt.Errorf("invalid key lengths")

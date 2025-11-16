@@ -74,55 +74,47 @@ func main() {
 			}
 		}
 	}
-	for _, block := range blocksArr {
-		block.FullfillBlockHeader()
-		noty.NotifyWithLevel(fmt.Sprintf("Height: %d", block.BlockHeight), LevelSuccess)
-		noty.NotifyWithLevel(fmt.Sprintf("PreviousBlockHash: %X", block.PreviousBlockHash), LevelSuccess)
-		noty.NotifyWithLevel(fmt.Sprintf("Hash: %s", block.GetBlockId()), LevelSuccess)
-		noty.NotifyWithLevel("Expected: 433b6e084ac5f8a3e7f54d686f3ca25733177c4111df09117aecd3ffec60661e", LevelSuccess)
-		os.Exit(991)
-	}
 
-	fees := []Fee{}
-	for _, block := range blocksArr {
-		block.FullfillBlockHeader()
-		for _, tx := range block.TXs {
-			tx.ParseTx()
-			tx.ParseRctSig()
-			fees = append(fees, Fee{
-				Hash:   fmt.Sprintf("%X", tx.Hash),
-				Amount: float64(tx.RctSignature.TxnFee) * 0.000000000001,
-			})
-		}
-	}
+	// fees := []Fee{}
+	// for _, block := range blocksArr {
+	// 	block.FullfillBlockHeader()
+	// 	for _, tx := range block.TXs {
+	// 		tx.ParseTx()
+	// 		tx.ParseRctSig()
+	// 		fees = append(fees, Fee{
+	// 			Hash:   fmt.Sprintf("%X", tx.Hash),
+	// 			Amount: float64(tx.RctSignature.TxnFee) * 0.000000000001,
+	// 		})
+	// 	}
+	// }
 
-	for _, fee := range fees {
-		noty.NotifyWithLevel(fmt.Sprintf("TxHash: %s; Fee: %0.8f", fee.Hash, fee.Amount), LevelSuccess)
-	}
+	// for _, fee := range fees {
+	// 	noty.NotifyWithLevel(fmt.Sprintf("TxHash: %s; Fee: %0.8f", fee.Hash, fee.Amount), LevelSuccess)
+	// }
 
-	amounts := make([]float64, len(fees))
-	for i, f := range fees {
-		amounts[i] = f.Amount
-	}
-	if len(amounts) == 0 {
-		noty.NotifyWithLevel("No fees to analyze", LevelWarning)
-		os.Exit(998)
-	}
+	// amounts := make([]float64, len(fees))
+	// for i, f := range fees {
+	// 	amounts[i] = f.Amount
+	// }
+	// if len(amounts) == 0 {
+	// 	noty.NotifyWithLevel("No fees to analyze", LevelWarning)
+	// 	os.Exit(998)
+	// }
 
-	slices.Sort(amounts)
-	min := amounts[0]
-	max := amounts[len(amounts)-1]
+	// slices.Sort(amounts)
+	// min := amounts[0]
+	// max := amounts[len(amounts)-1]
 
-	var median float64
-	n := len(amounts)
-	if n%2 == 1 {
-		median = amounts[n/2]
-	} else {
-		median = (amounts[n/2-1] + amounts[n/2]) / 2
-	}
-	noty.NotifyWithLevel(fmt.Sprintf("Min: %0.12f; Max: %0.12f; Median: %0.12f", min, max, median), LevelSuccess)
+	// var median float64
+	// n := len(amounts)
+	// if n%2 == 1 {
+	// 	median = amounts[n/2]
+	// } else {
+	// 	median = (amounts[n/2-1] + amounts[n/2]) / 2
+	// }
+	// noty.NotifyWithLevel(fmt.Sprintf("Min: %0.12f; Max: %0.12f; Median: %0.12f", min, max, median), LevelSuccess)
 
-	os.Exit(999)
+	// os.Exit(999)
 
 	for i, block := range blocksArr {
 		if i != 0 {
@@ -139,6 +131,10 @@ func main() {
 		// noty.NotifyWithLevel("=========", LevelSuccess)
 
 		for _, tx := range block.TXs {
+			fmt.Printf("Expected: %x\n", tx.Hash)
+			tx.CalcHash()
+			fmt.Printf("Got: %x\n", tx.Hash)
+			os.Exit(991)
 			if !slices.Contains([]string{"8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222", "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"}, fmt.Sprintf("%x", tx.Hash)) {
 				continue
 			}
