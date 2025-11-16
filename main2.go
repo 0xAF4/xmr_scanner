@@ -132,14 +132,14 @@ func main() {
 
 		for _, tx := range block.TXs {
 			fmt.Printf("Expected: %x\n", tx.Hash)
+			tx.ParseTx()
+			tx.ParseRctSig()
 			tx.CalcHash()
 			fmt.Printf("Got: %x\n", tx.Hash)
 			os.Exit(991)
 			if !slices.Contains([]string{"8b891c0352014ea6687a0b51b8128ec238b26c9bd523aa1554def1078d822222", "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"}, fmt.Sprintf("%x", tx.Hash)) {
 				continue
 			}
-			tx.ParseTx()
-			tx.ParseRctSig()
 			noty.NotifyWithLevel(fmt.Sprintf("  ------- TX Hash: %X", tx.Hash), LevelSuccess)
 			data2, _ := json.MarshalIndent(tx, "", "  ")
 			noty.NotifyWithLevel("\n"+string(data2), LevelSuccess)
