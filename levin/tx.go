@@ -75,6 +75,18 @@ type RctSigPrunable struct {
 	PseudoOuts []Hash  `json:"pseudoOuts"`
 }
 
+func (tx *Transaction) Serialize() []byte {
+	part1 := tx.CalculatePart1()
+	part2 := tx.CalculatePart2()
+	part3 := tx.CalculatePart3()
+
+	// Step 2: Concatenate the parts
+	concat := append(part1, part2...)
+	concat = append(concat, part3...)
+
+	return concat
+}
+
 func (tx *Transaction) ParseTx() {
 	reader := bytes.NewReader(tx.Raw)
 
@@ -208,7 +220,6 @@ func (tx *Transaction) ParseRctSig() {
 
 	rest := make([]byte, reader.Len())
 	reader.Read(rest)
-	tx.RctRaw = rest
 }
 
 func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (float64, uint64, error) {

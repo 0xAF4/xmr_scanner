@@ -17,10 +17,8 @@ Content-Type: application/json
   "id": "0",
   "method": "get_block",
   "params": { 
-    "height": 3524114,
-    "decode_as_json": true
-  }
-  
+    "height": 3546761
+  } 
 }
 
 ###
@@ -29,7 +27,7 @@ Content-Type: application/json
 
 {
   "txs_hashes": [
-    "884e56fb693eb5ea008097ebbba5467470827e0771fb652f979aa8a405c2c2e8"
+    "5a0247682c4170b643150434198a04d73270b98dd4c112c852ee01efaec30c19"
   ],
   "decode_as_json": true
 }
