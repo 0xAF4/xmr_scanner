@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"strings"
 
+	moneroutil "xmr_scanner/moneroutil"
+
 	"filippo.io/edwards25519"
 	"golang.org/x/crypto/sha3"
 )
@@ -441,6 +443,23 @@ func decryptShortPaymentID(txPubKey, privViewKey, encPID []byte) (uint64, []byte
 	// interpret as little-endian uint64
 	id := binary.LittleEndian.Uint64(pidBytes)
 	return id, pidBytes, nil
+}
+
+func encryptPaymentID(paymentID, pubViewKey, txSecretKey []byte) ([8]byte, error) {
+	shared, err := SharedSecret(pubViewKey, txSecretKey)
+	if err != nil {
+		return [8]byte{}, err
+	}
+
+	// append magic byte 0x8d
+	data := append(shared, 0x8d)
+	hash := moneroutil.Keccak256(data)
+
+	var encrypted [8]byte
+	for i := 0; i < 8; i++ {
+		encrypted[i] = paymentID[i] ^ hash[i]
+	}
+	return encrypted, nil
 }
 
 func ScalarFromUint64(v uint64) *edwards25519.Scalar {

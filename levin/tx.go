@@ -2,8 +2,10 @@ package levin
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"slices"
+	moneroutil "xmr_scanner/moneroutil"
 
 	"filippo.io/edwards25519"
 )
@@ -22,6 +24,9 @@ type Transaction struct {
 	RctRaw         []byte          `json:"-"`
 	RctSignature   *RctSignature   `json:"rct_signature"`
 	RctSigPrunable *RctSigPrunable `json:"rctsig_prunable"`
+
+	SecretKey Hash `json:"-"`
+	PublicKey Hash `json:"-"`
 }
 
 type TxInput struct {
@@ -579,6 +584,43 @@ func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64,
 	}
 
 	return float64(amount) / 1e12, nil
+}
+
+func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (HAmount, error) {
+	// Конвертируем amount в uint64 (предполагаем, что amount уже в atomic units)
+	amountAtomic := uint64(amount * 1e12)
+	fmt.Println("amountAtomic:", amountAtomic)
+
+	// Получаем shared secret
+	shared, err := SharedSecret(pubViewKey, txSecretKey)
+	if err != nil {
+		return [8]byte{}, err
+	}
+
+	// Создаем данные для хеширования: shared_secret || "amount" || output_index
+	data := make([]byte, 0, len(shared)+6+8)
+	data = append(data, shared...)
+	data = append(data, []byte("amount")...) // magic string для amount encryption
+
+	// Добавляем output_index в little-endian формате
+	indexBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(indexBytes, outputIndex)
+	data = append(data, indexBytes...)
+
+	// Хешируем
+	hash := moneroutil.Keccak256(data)
+
+	// Конвертируем amount в байты (little-endian)
+	amountBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(amountBytes, amountAtomic)
+
+	// XOR с хешем
+	var encrypted [8]byte
+	for i := 0; i < 8; i++ {
+		encrypted[i] = amountBytes[i] ^ hash[i]
+	}
+
+	return encrypted, nil
 }
 
 // encodeVarint encodes a uint64 as a varint (used in Monero)

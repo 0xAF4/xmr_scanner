@@ -3,21 +3,14 @@ package levin
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"math"
 	"math/rand"
-	"net/http"
-	"sort"
-	"strings"
 	"time"
 
-	"filippo.io/edwards25519"
+	moneroutil "xmr_scanner/moneroutil"
 )
 
-type InputPrm map[string]interface{}
+type TxPrm map[string]interface{}
 
 const daemonURL = "https://xmr3.doggett.tech:18089/get_transactions"
 const currentBlockHeight = 3570154
@@ -42,7 +35,8 @@ var mockOffset = []uint64{
 }
 
 func NewEmptyTransaction() *Transaction {
-	return &Transaction{
+	// var err error
+	tx := &Transaction{
 		Version:    2,
 		UnlockTime: 0,
 		VinCount:   0,
@@ -51,90 +45,30 @@ func NewEmptyTransaction() *Transaction {
 		},
 		RctSigPrunable: &RctSigPrunable{},
 	}
+	h, _ := hexTo32("772299cb00fae663173f9aeab9273da82f2500976e6556e16da22bf6ceed1d83")
+	tx.PublicKey = Hash(h)
+	h, _ = hexTo32("fc1415ced071ae7de346a7ca0dd2b0f9b64cd64423d5ea73b971da135c54de05")
+	tx.SecretKey = Hash(h)
+
+	// privKey, pubKey := moneroutil.NewKeyPair()
+	// tx.SecretKey = Hash(privKey.ToBytes())
+	// tx.PublicKey = Hash(pubKey.ToBytes())
+	tx.writePubKeyToExtra()
+
+	// encPID, _ := hex.DecodeString("b0fb56db3f6f2882")
+	// privViewKey, _ := hexTo32("4fd69daf111e62ad6d64bfa3a529751db91eb35ef547e00d58ca1a99aee98209")
+	// id, pidBytes, err := decryptShortPaymentID(tx.PublicKey[:], privViewKey, encPID)
+	// if err != nil {
+	// 	log.Fatalf("decryptShortPaymentID error: %v", err)
+	// }
+	// fmt.Println(pidBytes)
+	// fmt.Println(id)
+	// os.Exit(1)
+
+	return tx
 }
 
-func getOutputIndex(txId string, vout int) (uint64, error) {
-	if vout < 0 {
-		return 0, fmt.Errorf("vout must be non-negative")
-	}
-
-	body := fmt.Sprintf(`{"txs_hashes":["%s"],"decode_as_json":false}`, txId)
-
-	resp, err := http.Post(daemonURL, "application/json", strings.NewReader(body))
-	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("daemon returned status %s", resp.Status)
-	}
-
-	// Структура ответа
-	type txResponse struct {
-		Txs []struct {
-			OutputIndices []json.Number `json:"output_indices"`
-		} `json:"txs"`
-	}
-
-	var result txResponse
-
-	decoder := json.NewDecoder(resp.Body)
-	decoder.UseNumber()
-
-	if err := decoder.Decode(&result); err != nil {
-		return 0, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if len(result.Txs) == 0 {
-		return 0, fmt.Errorf("no transactions found in response")
-	}
-
-	outputs := result.Txs[0].OutputIndices
-
-	if vout >= len(outputs) {
-		return 0, fmt.Errorf("vout index out of range")
-	}
-
-	indexUint64, err := outputs[vout].Int64()
-	if err != nil {
-		return 0, fmt.Errorf("invalid output index value: %w", err)
-	}
-
-	return uint64(indexUint64), nil
-}
-
-func BuildKeyOffsets(indices []uint64) ([]uint64, error) {
-	if len(indices) == 0 {
-		return nil, errors.New("empty indices")
-	}
-
-	// 1. Копируем и сортируем
-	sorted := make([]uint64, len(indices))
-	copy(sorted, indices)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i] < sorted[j]
-	})
-
-	// 2. Проверка на дубликаты (важно)
-	for i := 1; i < len(sorted); i++ {
-		if sorted[i] == sorted[i-1] {
-			return nil, errors.New("duplicate global index")
-		}
-	}
-
-	// 3. Строим offsets
-	offsets := make([]uint64, len(sorted))
-	offsets[0] = sorted[0]
-
-	for i := 1; i < len(sorted); i++ {
-		offsets[i] = sorted[i] - sorted[i-1]
-	}
-
-	return offsets, nil
-}
-
-func (t *Transaction) WriteInput(prm InputPrm) error {
+func (t *Transaction) WriteInput(prm TxPrm) error {
 	vout := prm["vout"].(int)
 	indx, err := getOutputIndex(prm["txId"].(string), vout)
 	if err != nil {
@@ -162,7 +96,7 @@ func (t *Transaction) WriteInput(prm InputPrm) error {
 		return fmt.Errorf("failed to decode private view key: %w", err)
 	}
 
-	pubSpendKey, _ /*pubViewKey*/, err := DecodeAddress(prm["address"].(string)) // correct ✅
+	pubSpendKey, _, err := DecodeAddress(prm["address"].(string)) // correct ✅
 	if err != nil {
 		return fmt.Errorf("failed to decode address: %w", err)
 	}
@@ -177,110 +111,102 @@ func (t *Transaction) WriteInput(prm InputPrm) error {
 		return fmt.Errorf("failed to extract tx public key: %w", err)
 	}
 
-	outputPubKey, err := DerivePublicKey(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(vout))
+	mPrivViewKey := moneroutil.Key(privViewKeyBytes)
+	mPubSpendKey := moneroutil.Key(pubSpendKey)
+	mTxPubKey := moneroutil.Key(txPubKey)
+	mSecSpendKey, err := moneroutil.ParseKeyFromHex(prm["privateSpendKey"].(string))
+	keyImage, err := moneroutil.CreateKeyImage(&mPubSpendKey, &mSecSpendKey, &mPrivViewKey, &mTxPubKey, uint64(vout))
 	if err != nil {
-		return fmt.Errorf("failed to get output public key: %w", err)
+		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
-
-	keyImage, err := t.generateKeyImage(prm["privateSpendKey"].(string), outputPubKey)
-	if err != nil {
-		return fmt.Errorf("failed to generate key image: %w", err)
-	}
-
-	fmt.Printf("Key Image: %x\n", keyImage)
 
 	t.VinCount += 1
 	t.Inputs = append(t.Inputs, TxInput{
 		Amount:     0,
 		Type:       0x02,
 		KeyOffsets: mockOffset, //keyOffset,
-		KeyImage:   keyImage,
+		KeyImage:   keyImage.ToBytes(),
 	})
 	return nil
 }
 
-func hashToPoint(publicKey []byte) *edwards25519.Point {
-	hash := hashToScalar(publicKey)
-	point := new(edwards25519.Point).ScalarBaseMult(hash)
-	return point
-}
+func (t *Transaction) WriteOutput(prm TxPrm) error {
+	// Implementation for writing output goes here
+	currentIndex := t.VoutCount
 
-func (t *Transaction) generateKeyImage(privateKey string, outputPubKey []byte) (Hash, error) {
-	// 1. Декодируем приватный spend ключ
-	privKeyBytes, err := hexTo32(privateKey)
+	pubSpendKey, pubViewKey, err := DecodeAddress(prm["address"].(string)) // correct ✅
 	if err != nil {
-		return Hash{}, fmt.Errorf("failed to decode private spend key: %w", err)
+		return fmt.Errorf("failed to decode address: %w", err)
 	}
 
-	// 2. Создаем скаляр
-	privScalar := new(edwards25519.Scalar)
-	if _, err := privScalar.SetCanonicalBytes(privKeyBytes); err != nil {
-		return Hash{}, fmt.Errorf("invalid private spend key: %w", err)
+	viewTag, err := DeriveViewTag(pubViewKey[:], t.SecretKey[:], currentIndex) // correct ✅
+	if err != nil {
+		return fmt.Errorf("failed to derive view tag: %w", err)
 	}
 
-	hashPoint := hashToPoint(outputPubKey)
-	keyImage := new(edwards25519.Point).ScalarMult(privScalar, hashPoint)
-
-	keyImageBytes := keyImage.Bytes()
-	var result Hash
-	copy(result[:], keyImageBytes)
-
-	return result, nil
-}
-
-const (
-	BlocksPerDay = 720.0
-	RecentDays   = 1.8
-	RecentRatio  = 0.5
-	GammaShape   = 19.28
-	GammaScale   = 1.0 / 1.61
-	MaxGammaDays = 365.0 * 10
-)
-
-func sampleGamma(r *rand.Rand, k, theta float64) float64 {
-	// Marsaglia and Tsang
-	if k < 1 {
-		return sampleGamma(r, k+1, theta) * math.Pow(r.Float64(), 1.0/k)
+	derivedKey, err := DerivePublicKey(pubViewKey[:], t.SecretKey[:], pubSpendKey[:], currentIndex)
+	if err != nil {
+		return fmt.Errorf("failed to derive public key for output %d: %w", currentIndex, err)
 	}
 
-	d := k - 1.0/3.0
-	c := 1.0 / math.Sqrt(9*d)
-
-	for {
-		x := r.NormFloat64()
-		v := 1 + c*x
-		if v <= 0 {
-			continue
+	if val, ok := prm["change_address"].(bool); !ok || !val {
+		paymentId, err := ExtractPaymentID(prm["address"].(string))
+		if err != nil {
+			return fmt.Errorf("failed to extract payment ID: %w", err)
 		}
-		v = v * v * v
-		u := r.Float64()
-
-		if u < 1-0.0331*(x*x)*(x*x) {
-			return d * v * theta
+		if paymentId == nil {
+			paymentId = make([]byte, 8)
 		}
-		if math.Log(u) < 0.5*x*x+d*(1-v+math.Log(v)) {
-			return d * v * theta
+		fmt.Println("paymentId:", paymentId)
+		if err := t.writePaymentIdToExtra(paymentId, pubViewKey[:]); err != nil {
+			return fmt.Errorf("failed to write payment ID to extra: %w", err)
 		}
 	}
-}
 
-func sampleOutputAgeDays(r *rand.Rand) float64 {
-	if r.Float64() < RecentRatio {
-		return r.Float64() * RecentDays
+	amnt, err := EncryptRctAmount(prm["amount"].(float64), pubViewKey[:], t.SecretKey[:], currentIndex)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt amount: %w", err)
 	}
 
-	age := sampleGamma(r, GammaShape, GammaScale)
-	if age > MaxGammaDays {
-		return MaxGammaDays
-	}
-	return age
+	t.RctSignature.EcdhInfo = append(t.RctSignature.EcdhInfo, Echd{
+		Amount: amnt,
+		Mask:   Hash{},
+	})
+
+	t.VoutCount += 1
+	t.Outputs = append(t.Outputs, TxOutput{
+		Amount:  0,
+		Target:  Hash(derivedKey),
+		Type:    3,
+		ViewTag: HByte(viewTag),
+	})
+	return nil
 }
 
-func hashToScalar(data []byte) *edwards25519.Scalar {
-	hash := Hash(data)
-	scalar := new(edwards25519.Scalar)
-	scalar.SetBytesWithClamping(hash[:])
-	return scalar
+func (t *Transaction) writePubKeyToExtra() {
+	var buf bytes.Buffer
+
+	buf.WriteByte(0x01)
+	buf.Write(t.PublicKey[:])
+
+	t.Extra = ByteArray(buf.Bytes())
+}
+
+func (t *Transaction) writePaymentIdToExtra(paymentId, pubViewKey []byte) error {
+	var buf bytes.Buffer
+
+	buf.WriteByte(0x02) // Payment ID tag
+	buf.WriteByte(0x09) // Payment ID Length (16 bytes)
+	buf.WriteByte(0x01) // Encrypted Payment ID flag
+
+	encryptedPaymentId, err := encryptPaymentID(paymentId, pubViewKey, t.SecretKey[:])
+	if err != nil {
+		return err
+	}
+	buf.Write(encryptedPaymentId[:])
+
+	t.Extra = ByteArray(append(t.Extra, buf.Bytes()...))
+	return nil
 }
 
 func SelectDecoys(rng *rand.Rand, realGlobalIndex uint64, maxGlobalIndex uint64) ([]uint64, error) {
@@ -329,71 +255,4 @@ func SelectDecoys(rng *rand.Rand, realGlobalIndex uint64, maxGlobalIndex uint64)
 	})
 
 	return ring, nil
-}
-
-func getMaxGlobalIndex() (uint64, error) {
-	req := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      "0",
-		"method":  "get_output_distribution",
-		"params": map[string]interface{}{
-			"amounts":     []uint64{0},
-			"from_height": currentBlockHeight - 10,
-			"cumulative":  true,
-			"binary":      false,
-			"compress":    false,
-		},
-	}
-
-	var resp struct {
-		Result struct {
-			Distributions []struct {
-				Distribution []uint64 `json:"distribution"`
-			} `json:"distributions"`
-		} `json:"result"`
-	}
-
-	if err := call(req, &resp); err != nil {
-		return 0, err
-	}
-
-	dist := resp.Result.Distributions[0].Distribution
-	return dist[len(dist)-1] - 1, nil
-}
-
-func call(reqBody any, respBody any) error {
-	data, err := json.Marshal(reqBody)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(
-		"POST",
-		fmt.Sprintf("https://xmr3.doggett.tech:18089/json_rpc"),
-		bytes.NewReader(data),
-	)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf(
-			"daemon rpc http %d: %s",
-			resp.StatusCode,
-			string(body),
-		)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(respBody)
 }
