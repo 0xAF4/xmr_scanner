@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
-	moneroutil "xmr_scanner/moneroutil"
 
 	"filippo.io/edwards25519"
 )
@@ -591,36 +590,43 @@ func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, out
 	amountAtomic := uint64(amount * 1e12)
 	fmt.Println("amountAtomic:", amountAtomic)
 
-	// Получаем shared secret
+	// Получаем shared secret (shared = 8 * txSecretKey * pubViewKey)
 	shared, err := SharedSecret(pubViewKey, txSecretKey)
 	if err != nil {
 		return [8]byte{}, err
 	}
 
-	// Создаем данные для хеширования: shared_secret || "amount" || output_index
-	data := make([]byte, 0, len(shared)+6+8)
-	data = append(data, shared...)
-	data = append(data, []byte("amount")...) // magic string для amount encryption
+	// Вычисляем Hs = sc_reduce32(keccak256(shared || varint(index)))
+	hashInput := append(shared, encodeVarint(outputIndex)...)
+	hsHash := keccak256(hashInput)
 
-	// Добавляем output_index в little-endian формате
-	indexBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(indexBytes, outputIndex)
-	data = append(data, indexBytes...)
+	// Для получения скаляра используем SetUniformBytes (ожидает 64 байта)
+	hsHash64 := make([]byte, 64)
+	copy(hsHash64, hsHash)
+	hsScalar := new(edwards25519.Scalar)
+	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
+		return [8]byte{}, err
+	}
+	hsBytes := hsScalar.Bytes()
 
-	// Хешируем
-	hash := moneroutil.Keccak256(data)
+	// amountMask = keccak256("amount" || hsBytes)
+	amountMask := keccak256(append([]byte("amount"), hsBytes...))
 
 	// Конвертируем amount в байты (little-endian)
 	amountBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(amountBytes, amountAtomic)
 
-	// XOR с хешем
+	// XOR первых 8 байт маски
 	var encrypted [8]byte
 	for i := 0; i < 8; i++ {
-		encrypted[i] = amountBytes[i] ^ hash[i]
+		encrypted[i] = amountBytes[i] ^ amountMask[i]
 	}
 
 	return encrypted, nil
+}
+
+func CalcOutPk(pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+	
 }
 
 // encodeVarint encodes a uint64 as a varint (used in Monero)

@@ -40,6 +40,7 @@ func NewEmptyTransaction() *Transaction {
 		Version:    2,
 		UnlockTime: 0,
 		VinCount:   0,
+		VoutCount:  0,
 		RctSignature: &RctSignature{
 			Type: 6,
 		},
@@ -157,7 +158,6 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		if paymentId == nil {
 			paymentId = make([]byte, 8)
 		}
-		fmt.Println("paymentId:", paymentId)
 		if err := t.writePaymentIdToExtra(paymentId, pubViewKey[:]); err != nil {
 			return fmt.Errorf("failed to write payment ID to extra: %w", err)
 		}
@@ -168,10 +168,17 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		return fmt.Errorf("failed to encrypt amount: %w", err)
 	}
 
+	outPk, err := CalcOutPk(pubViewKey[:], t.SecretKey[:], currentIndex)
+	if err != nil {
+		return fmt.Errorf("failed to calculate output public key: %w", err)
+	}
+
 	t.RctSignature.EcdhInfo = append(t.RctSignature.EcdhInfo, Echd{
 		Amount: amnt,
 		Mask:   Hash{},
 	})
+
+	t.RctSignature.OutPk = append(t.RctSignature.OutPk, outPk)
 
 	t.VoutCount += 1
 	t.Outputs = append(t.Outputs, TxOutput{
