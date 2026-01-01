@@ -49,7 +49,12 @@ func NewEmptyTransaction() *Transaction {
 		RctSignature: &RctSignature{
 			Type: 6,
 		},
-		RctSigPrunable: &RctSigPrunable{},
+		RctSigPrunable: &RctSigPrunable{
+			Nbp: 1,
+			Bpp: []Bpp{
+				Bpp{},
+			},
+		},
 	}
 	if h, err := hexTo32(txPublicKeyHex); err == nil {
 		tx.PublicKey = Hash(h)
