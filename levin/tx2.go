@@ -34,6 +34,11 @@ var mockOffset = []uint64{
 	1401,
 }
 
+const (
+	txPublicKeyHex  = "772299cb00fae663173f9aeab9273da82f2500976e6556e16da22bf6ceed1d83"
+	txPrivateKeyHex = "fc1415ced071ae7de346a7ca0dd2b0f9b64cd64423d5ea73b971da135c54de05"
+)
+
 func NewEmptyTransaction() *Transaction {
 	// var err error
 	tx := &Transaction{
@@ -46,10 +51,12 @@ func NewEmptyTransaction() *Transaction {
 		},
 		RctSigPrunable: &RctSigPrunable{},
 	}
-	h, _ := hexTo32("772299cb00fae663173f9aeab9273da82f2500976e6556e16da22bf6ceed1d83")
-	tx.PublicKey = Hash(h)
-	h, _ = hexTo32("fc1415ced071ae7de346a7ca0dd2b0f9b64cd64423d5ea73b971da135c54de05")
-	tx.SecretKey = Hash(h)
+	if h, err := hexTo32(txPublicKeyHex); err == nil {
+		tx.PublicKey = Hash(h)
+	}
+	if h, err := hexTo32(txPrivateKeyHex); err == nil {
+		tx.SecretKey = Hash(h)
+	}
 
 	// privKey, pubKey := moneroutil.NewKeyPair()
 	// tx.SecretKey = Hash(privKey.ToBytes())

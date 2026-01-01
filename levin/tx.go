@@ -652,7 +652,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	maskData := keccak256(append([]byte("commitment_mask"), hsBytes...))
 	maskHash64 := make([]byte, 64)
 	copy(maskHash64, maskData)
-	
+
 	blindingFactor := new(edwards25519.Scalar)
 	if _, err := blindingFactor.SetUniformBytes(maskHash64); err != nil {
 		return Hash{}, err
@@ -672,16 +672,15 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 
 	// Вычисляем Pedersen commitment: C = xG + aH
 	// где x = blinding factor, a = amount
-	
+
 	// xG (blinding_factor * G)
 	xG := new(edwards25519.Point).ScalarBaseMult(blindingFactor)
-	
+
 	// aH (amount * H)
 	aH := new(edwards25519.Point).ScalarMult(amountScalar, H)
-	
+
 	// C = xG + aH
 	C := new(edwards25519.Point).Add(xG, aH)
-	
 	return Hash(C.Bytes()), nil
 }
 
@@ -689,10 +688,10 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 func deriveH() *edwards25519.Point {
 	// G в байтах
 	G := edwards25519.NewGeneratorPoint().Bytes()
-	
+
 	// H = keccak256(G), затем интерпретируем как точку
 	hBytes := keccak256(G)
-	
+
 	H, err := new(edwards25519.Point).SetBytes(hBytes)
 	if err != nil {
 		// Если не получилось напрямую, используем hash_to_point алгоритм Monero
@@ -705,9 +704,10 @@ func deriveH() *edwards25519.Point {
 			}
 		}
 	}
-	
+
 	return H
 }
+
 // encodeVarint encodes a uint64 as a varint (used in Monero)
 func encodeVarint(n uint64) []byte {
 	var buf []byte
