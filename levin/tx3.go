@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	moneroutil "xmr_scanner/moneroutil"
 )
 
 const (
@@ -207,4 +208,28 @@ func call(reqBody any, respBody any) error {
 	}
 
 	return json.NewDecoder(resp.Body).Decode(respBody)
+}
+
+const (
+	txInGenMarker    = 0xff
+	txInToKeyMarker  = 2
+	txOutToKeyMarker = 2
+)
+
+func (i *TxInput) Serialize() []byte {
+	var result []byte
+	result = append([]byte{txInToKeyMarker}, moneroutil.Uint64ToBytes(i.Amount)...)
+	result = append(result, moneroutil.Uint64ToBytes(uint64(len(i.KeyOffsets)))...)
+	for _, keyOffset := range i.KeyOffsets {
+		result = append(result, moneroutil.Uint64ToBytes(keyOffset)...)
+	}
+	result = append(result, i.KeyImage[:]...)
+	return result
+}
+
+func (o *TxOutput) Serialize() []byte {
+	amount := uint64(o.Amount * 1e12)
+	result := append(moneroutil.Uint64ToBytes(amount), txOutToKeyMarker)
+	result = append(result, o.Target[:]...)
+	return result
 }

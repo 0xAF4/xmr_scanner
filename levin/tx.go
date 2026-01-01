@@ -331,6 +331,7 @@ func (tx *Transaction) CalculatePart1() []byte {
 
 	// Inputs
 	buf.Write(encodeVarint(uint64(len(tx.Inputs))))
+
 	for _, input := range tx.Inputs {
 		buf.WriteByte(input.Type)
 

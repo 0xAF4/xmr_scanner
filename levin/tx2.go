@@ -54,6 +54,8 @@ func NewEmptyTransaction() *Transaction {
 			Bpp: []Bpp{
 				Bpp{},
 			},
+			CLSAGs:     []CLSAG{},
+			PseudoOuts: []Hash{},
 		},
 	}
 	if h, err := hexTo32(txPublicKeyHex); err == nil {
@@ -67,16 +69,6 @@ func NewEmptyTransaction() *Transaction {
 	// tx.SecretKey = Hash(privKey.ToBytes())
 	// tx.PublicKey = Hash(pubKey.ToBytes())
 	tx.writePubKeyToExtra()
-
-	// encPID, _ := hex.DecodeString("b0fb56db3f6f2882")
-	// privViewKey, _ := hexTo32("4fd69daf111e62ad6d64bfa3a529751db91eb35ef547e00d58ca1a99aee98209")
-	// id, pidBytes, err := decryptShortPaymentID(tx.PublicKey[:], privViewKey, encPID)
-	// if err != nil {
-	// 	log.Fatalf("decryptShortPaymentID error: %v", err)
-	// }
-	// fmt.Println(pidBytes)
-	// fmt.Println(id)
-	// os.Exit(1)
 
 	return tx
 }
@@ -133,9 +125,15 @@ func (t *Transaction) WriteInput(prm TxPrm) error {
 		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
 
+	val, ok := prm["amount"].(float64)
+	if !ok {
+		return fmt.Errorf("failed to get amount of input")
+	}
+	_ = val
+
 	t.VinCount += 1
 	t.Inputs = append(t.Inputs, TxInput{
-		Amount:     0,
+		// Amount:     uint64(val * 1e12),
 		Type:       0x02,
 		KeyOffsets: mockOffset, //keyOffset,
 		KeyImage:   keyImage.ToBytes(),
@@ -202,6 +200,28 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 	return nil
 }
 
+func (t *Transaction) SignTransaction() error {
+	Bpp, err := t.signBpp()
+	if err != nil {
+		return fmt.Errorf("failed to sign bpp: %w", err)
+	}
+
+	CLSAGs, err := t.signCLSAGs()
+	if err != nil {
+		return fmt.Errorf("failed to sign CLSAGs: %w", err)
+	}
+
+	PseudoOuts, err := t.calculatePseudoOuts()
+	if err != nil {
+		return fmt.Errorf("failed to calculate pseudo outputs: %w", err)
+	}
+
+	t.RctSigPrunable.Bpp[0] = Bpp
+	t.RctSigPrunable.CLSAGs = CLSAGs
+	t.RctSigPrunable.PseudoOuts = PseudoOuts
+	return nil
+}
+
 func (t *Transaction) writePubKeyToExtra() {
 	var buf bytes.Buffer
 
@@ -226,6 +246,39 @@ func (t *Transaction) writePaymentIdToExtra(paymentId, pubViewKey []byte) error 
 
 	t.Extra = ByteArray(append(t.Extra, buf.Bytes()...))
 	return nil
+}
+
+func (t *Transaction) signBpp() (Bpp, error) {
+	Bpp := Bpp{}
+	return Bpp, nil
+}
+
+func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
+	CLSAGs := []CLSAG{}
+	return CLSAGs, nil
+}
+
+func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
+	PseudoOuts := []Hash{}
+	return PseudoOuts, nil
+}
+
+func (t *Transaction) PrefixHash() Hash {
+	var result []byte
+	result = append(moneroutil.Uint64ToBytes(uint64(t.Version)), moneroutil.Uint64ToBytes(t.UnlockTime)...)
+	result = append(result, moneroutil.Uint64ToBytes(t.VinCount)...)
+	for _, txIn := range t.Inputs {
+		result = append(result, txIn.Serialize()...)
+	}
+	result = append(result, moneroutil.Uint64ToBytes(t.VoutCount)...)
+	for _, txOut := range t.Outputs {
+		result = append(result, txOut.Serialize()...)
+	}
+	result = append(result, moneroutil.Uint64ToBytes(uint64(len(t.Extra)))...)
+	result = append(result, t.Extra...)
+
+	hash := moneroutil.Keccak256(result)
+	return Hash(hash)
 }
 
 func SelectDecoys(rng *rand.Rand, realGlobalIndex uint64, maxGlobalIndex uint64) ([]uint64, error) {
