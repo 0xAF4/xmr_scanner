@@ -3,6 +3,7 @@ package levin
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"slices"
 
@@ -625,87 +626,140 @@ func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, out
 }
 
 // func CalcOutPk(pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+// CalcOutPk calculates the output commitment (outPk) for a Monero RingCT transaction
+// This is a Pedersen commitment: C = xG + aH where:
+// - x is the blinding factor (mask) derived from shared secret
+// - a is the amount in atomic units
+// - G is the base point, H is the second base point
+// CalcOutPk calculates the output commitment (outPk) for a Monero RingCT transaction
+// This is a Pedersen commitment: C = xG + aH where:
+// - x is the blinding factor (mask) derived from shared secret
+// - a is the amount in atomic units
+// - G is the base point, H is the second base point
 func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
-	// Конвертируем amount в atomic units
+	// Convert amount to atomic units
 	amountAtomic := uint64(amount * 1e12)
 
-	// Вычисляем shared secret: 8 * r * A
-	shared, err := SharedSecret(pubViewKey, txSecretKey)
+	// ВАЖНО: Сначала вычисляем shared secret правильно
+	// В Monero: shared_secret = r * A (где r - tx secret key, A - pub view key)
+	// НО для Edwards25519 нужно умножить на 8 (cofactor)
+
+	// Parse recipient's public view key
+	pubViewPoint, err := new(edwards25519.Point).SetBytes(pubViewKey)
 	if err != nil {
-		return Hash{}, err
+		return Hash{}, fmt.Errorf("invalid public view key: %w", err)
 	}
 
-	// Вычисляем Hs(shared || index)
-	hashInput := append(shared, encodeVarint(outputIndex)...)
+	// Parse tx secret key as scalar
+	txSecScalar := new(edwards25519.Scalar)
+	if _, err := txSecScalar.SetCanonicalBytes(txSecretKey); err != nil {
+		return Hash{}, fmt.Errorf("invalid tx secret key: %w", err)
+	}
+
+	// Create scalar 8 (cofactor)
+	eightBytes := make([]byte, 32)
+	eightBytes[0] = 8
+	eight := new(edwards25519.Scalar)
+	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
+		return Hash{}, fmt.Errorf("failed to create scalar 8: %w", err)
+	}
+
+	// Compute 8 * r
+	eightR := new(edwards25519.Scalar).Multiply(eight, txSecScalar)
+
+	// Compute shared secret point: (8*r) * A
+	sharedPoint := new(edwards25519.Point).ScalarMult(eightR, pubViewPoint)
+	sharedSecret := sharedPoint.Bytes()
+
+	// Compute Hs(shared_secret || index) - derivation scalar
+	hashInput := append(sharedSecret, encodeVarint(outputIndex)...)
 	hsHash := keccak256(hashInput)
 
-	// Получаем скаляр из хеша
+	// Convert to scalar (reduce mod l)
 	hsHash64 := make([]byte, 64)
 	copy(hsHash64, hsHash)
 	hsScalar := new(edwards25519.Scalar)
 	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
-		return Hash{}, err
+		return Hash{}, fmt.Errorf("failed to derive Hs scalar: %w", err)
 	}
 	hsBytes := hsScalar.Bytes()
 
-	// Вычисляем blinding factor (маску): x = Hs("commitment_mask" || Hs)
-	maskData := keccak256(append([]byte("commitment_mask"), hsBytes...))
+	// Compute blinding factor (mask): x = Hs("commitment_mask" || Hs(8rA||i))
+	maskInput := append([]byte("commitment_mask"), hsBytes...)
+	maskHash := keccak256(maskInput)
+
 	maskHash64 := make([]byte, 64)
-	copy(maskHash64, maskData)
+	copy(maskHash64, maskHash)
 
 	blindingFactor := new(edwards25519.Scalar)
 	if _, err := blindingFactor.SetUniformBytes(maskHash64); err != nil {
-		return Hash{}, err
+		return Hash{}, fmt.Errorf("failed to derive blinding factor: %w", err)
 	}
 
-	// Создаем скаляр из amount
+	// Create scalar from amount (little-endian)
 	amountBytes := make([]byte, 32)
 	binary.LittleEndian.PutUint64(amountBytes, amountAtomic)
 	amountScalar := new(edwards25519.Scalar)
 	if _, err := amountScalar.SetCanonicalBytes(amountBytes); err != nil {
-		return Hash{}, err
+		return Hash{}, fmt.Errorf("failed to create amount scalar: %w", err)
 	}
 
-	// Получаем H (вторая базовая точка)
-	// В Monero H = to_point(keccak256(G))
-	H := deriveH()
+	// Get H (second base point)
+	H := getH()
 
-	// Вычисляем Pedersen commitment: C = xG + aH
-	// где x = blinding factor, a = amount
+	// Compute Pedersen commitment: C = xG + aH
+	// где x - blinding factor (mask), a - amount
 
-	// xG (blinding_factor * G)
+	// xG = blinding_factor * G
 	xG := new(edwards25519.Point).ScalarBaseMult(blindingFactor)
 
-	// aH (amount * H)
+	// aH = amount * H
 	aH := new(edwards25519.Point).ScalarMult(amountScalar, H)
 
 	// C = xG + aH
-	C := new(edwards25519.Point).Add(xG, aH)
-	return Hash(C.Bytes()), nil
+	commitment := new(edwards25519.Point).Add(xG, aH)
+
+	return Hash(commitment.Bytes()), nil
 }
 
-// deriveH вычисляет вторую базовую точку H для Pedersen commitments
-func deriveH() *edwards25519.Point {
-	// G в байтах
-	G := edwards25519.NewGeneratorPoint().Bytes()
-
-	// H = keccak256(G), затем интерпретируем как точку
-	hBytes := keccak256(G)
+// getH returns the second generator point H used in Pedersen commitments
+// H is derived as hash_to_point(keccak256(G))
+func getH() *edwards25519.Point {
+	// Известное значение H для Monero (это константа!)
+	// H = 8b655970153799af2aeadc9ff1add0ea6c7251d54154cfa92c173a0dd39c1f94
+	hHex := "8b655970153799af2aeadc9ff1add0ea6c7251d54154cfa92c173a0dd39c1f94"
+	hBytes, _ := hex.DecodeString(hHex)
 
 	H, err := new(edwards25519.Point).SetBytes(hBytes)
 	if err != nil {
-		// Если не получилось напрямую, используем hash_to_point алгоритм Monero
-		// Пробуем с разными счетчиками пока не получим валидную точку
-		for i := 0; i < 256; i++ {
-			attempt := keccak256(append(G, byte(i)))
-			H, err = new(edwards25519.Point).SetBytes(attempt)
-			if err == nil {
-				break
-			}
-		}
+		// Fallback: вычислить H из G
+		return deriveH()
 	}
 
 	return H
+}
+
+// deriveH computes H if hardcoded value fails
+func deriveH() *edwards25519.Point {
+	G := edwards25519.NewGeneratorPoint().Bytes()
+	hHash := keccak256(G)
+
+	H, err := new(edwards25519.Point).SetBytes(hHash)
+	if err == nil {
+		return H
+	}
+
+	// Iterative approach with counter
+	for i := 0; i < 256; i++ {
+		data := append(G, byte(i))
+		attempt := keccak256(data)
+		H, err = new(edwards25519.Point).SetBytes(attempt)
+		if err == nil {
+			return H
+		}
+	}
+
+	return edwards25519.NewGeneratorPoint() // fallback to G (should never happen)
 }
 
 // encodeVarint encodes a uint64 as a varint (used in Monero)
