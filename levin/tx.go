@@ -588,7 +588,6 @@ func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64,
 func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (HAmount, error) {
 	// Конвертируем amount в uint64 (предполагаем, что amount уже в atomic units)
 	amountAtomic := uint64(amount * 1e12)
-	fmt.Println("amountAtomic:", amountAtomic)
 
 	// Получаем shared secret (shared = 8 * txSecretKey * pubViewKey)
 	shared, err := SharedSecret(pubViewKey, txSecretKey)
@@ -625,11 +624,90 @@ func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, out
 	return encrypted, nil
 }
 
-func CalcOutPk(amnt float64, pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
-	//TODO
-	return Hash{}, nil
+// func CalcOutPk(pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+	// Конвертируем amount в atomic units
+	amountAtomic := uint64(amount * 1e12)
+
+	// Вычисляем shared secret: 8 * r * A
+	shared, err := SharedSecret(pubViewKey, txSecretKey)
+	if err != nil {
+		return Hash{}, err
+	}
+
+	// Вычисляем Hs(shared || index)
+	hashInput := append(shared, encodeVarint(outputIndex)...)
+	hsHash := keccak256(hashInput)
+
+	// Получаем скаляр из хеша
+	hsHash64 := make([]byte, 64)
+	copy(hsHash64, hsHash)
+	hsScalar := new(edwards25519.Scalar)
+	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
+		return Hash{}, err
+	}
+	hsBytes := hsScalar.Bytes()
+
+	// Вычисляем blinding factor (маску): x = Hs("commitment_mask" || Hs)
+	maskData := keccak256(append([]byte("commitment_mask"), hsBytes...))
+	maskHash64 := make([]byte, 64)
+	copy(maskHash64, maskData)
+	
+	blindingFactor := new(edwards25519.Scalar)
+	if _, err := blindingFactor.SetUniformBytes(maskHash64); err != nil {
+		return Hash{}, err
+	}
+
+	// Создаем скаляр из amount
+	amountBytes := make([]byte, 32)
+	binary.LittleEndian.PutUint64(amountBytes, amountAtomic)
+	amountScalar := new(edwards25519.Scalar)
+	if _, err := amountScalar.SetCanonicalBytes(amountBytes); err != nil {
+		return Hash{}, err
+	}
+
+	// Получаем H (вторая базовая точка)
+	// В Monero H = to_point(keccak256(G))
+	H := deriveH()
+
+	// Вычисляем Pedersen commitment: C = xG + aH
+	// где x = blinding factor, a = amount
+	
+	// xG (blinding_factor * G)
+	xG := new(edwards25519.Point).ScalarBaseMult(blindingFactor)
+	
+	// aH (amount * H)
+	aH := new(edwards25519.Point).ScalarMult(amountScalar, H)
+	
+	// C = xG + aH
+	C := new(edwards25519.Point).Add(xG, aH)
+	
+	return Hash(C.Bytes()), nil
 }
 
+// deriveH вычисляет вторую базовую точку H для Pedersen commitments
+func deriveH() *edwards25519.Point {
+	// G в байтах
+	G := edwards25519.NewGeneratorPoint().Bytes()
+	
+	// H = keccak256(G), затем интерпретируем как точку
+	hBytes := keccak256(G)
+	
+	H, err := new(edwards25519.Point).SetBytes(hBytes)
+	if err != nil {
+		// Если не получилось напрямую, используем hash_to_point алгоритм Monero
+		// Пробуем с разными счетчиками пока не получим валидную точку
+		for i := 0; i < 256; i++ {
+			attempt := keccak256(append(G, byte(i)))
+			H, err = new(edwards25519.Point).SetBytes(attempt)
+			if err == nil {
+				break
+			}
+		}
+	}
+	
+	return H
+}
 // encodeVarint encodes a uint64 as a varint (used in Monero)
 func encodeVarint(n uint64) []byte {
 	var buf []byte
