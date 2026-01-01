@@ -110,6 +110,19 @@ func main() {
 	}
 	noty.NotifyWithLevel(fmt.Sprintf("TxRaw2: %x", tx2.Serialize()), LevelSuccess)
 
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_A: %x", tx.RctSigPrunable.Bpp[0].A), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_A: %x", tx2.RctSigPrunable.Bpp[0].A), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_A1: %x", tx.RctSigPrunable.Bpp[0].A1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_A1: %x", tx2.RctSigPrunable.Bpp[0].A1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_B: %x", tx.RctSigPrunable.Bpp[0].B), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_B: %x", tx2.RctSigPrunable.Bpp[0].B), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_R1: %x", tx.RctSigPrunable.Bpp[0].R1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_R1: %x", tx2.RctSigPrunable.Bpp[0].R1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_S1: %x", tx.RctSigPrunable.Bpp[0].S1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_S1: %x", tx2.RctSigPrunable.Bpp[0].S1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx1_D1: %x", tx.RctSigPrunable.Bpp[0].D1), LevelInfo)
+	noty.NotifyWithLevel(fmt.Sprintf("Tx2_D1: %x", tx2.RctSigPrunable.Bpp[0].D1), LevelInfo)
+
 	// keyImage, pubKeys, sig := moneroutil.CreateSignature()
 	// fmt.Printf("KeyImage: %s\n", keyImage)
 	// fmt.Printf("PubKeys:\n")
