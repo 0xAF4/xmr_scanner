@@ -625,8 +625,9 @@ func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, out
 	return encrypted, nil
 }
 
-func CalcOutPk(pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
-	
+func CalcOutPk(amnt float64, pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+	//TODO
+	return Hash{}, nil
 }
 
 // encodeVarint encodes a uint64 as a varint (used in Monero)

@@ -168,7 +168,7 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		return fmt.Errorf("failed to encrypt amount: %w", err)
 	}
 
-	outPk, err := CalcOutPk(pubViewKey[:], t.SecretKey[:], currentIndex)
+	outPk, err := CalcOutPk(prm["amount"].(float64), pubViewKey[:], t.SecretKey[:], currentIndex)
 	if err != nil {
 		return fmt.Errorf("failed to calculate output public key: %w", err)
 	}
