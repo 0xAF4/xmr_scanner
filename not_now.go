@@ -45,8 +45,6 @@ func (p *ScannerXMR) WriteBlockToDBLoop() {
 	}
 }
 
-
-
 func (p *ScannerXMR) showHeader(header *levin.Header) {
 	p.n.NotifyWithLevel(fmt.Sprintf("Message received:"), LevelInfo)
 	p.n.NotifyWithLevel(fmt.Sprintf(" - Length: %d", header.Length), LevelInfo)

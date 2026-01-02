@@ -11,7 +11,15 @@ import (
 func (t *Transaction) signBpp() (Bpp, error) {
 	// Bulletproof Plus для доказательства, что суммы выходов положительные
 	// без раскрытия самих сумм
-	bpp, err := createBulletproofPlus(t.BlindAmounts, t.BlindScalars)
+	amounts := []uint64{}
+	for _, val := range t.BlindAmounts {
+		amounts = append(amounts, val)
+	}
+	// for _, _ = range t.BlindAmounts {
+	// 	amounts = append(amounts, 0)
+	// }
+
+	bpp, err := createBulletproofPlus(amounts, t.BlindScalars)
 	if err != nil {
 		return Bpp{}, fmt.Errorf("failed to create bulletproof: %w", err)
 	}
@@ -20,18 +28,16 @@ func (t *Transaction) signBpp() (Bpp, error) {
 }
 
 // createBulletproofPlus создает Bulletproof Plus доказательство
+// createBulletproofPlus создает Bulletproof Plus доказательство
 func createBulletproofPlus(amounts []uint64, masks []*edwards25519.Scalar) (Bpp, error) {
 	if len(amounts) != len(masks) {
 		return Bpp{}, fmt.Errorf("amounts and masks length mismatch")
 	}
 
-	// Количество битов в доказательстве (обычно 64 для Monero)
 	const nBits = 64
-
-	// Количество выходов должно быть степенью 2 для оптимизации
 	n := len(amounts)
 
-	// Вычисляем размер логарифмической части (log2(n * nBits))
+	// Вычисляем размер логарифмической части
 	logMN := 0
 	mn := n * nBits
 	for temp := mn; temp > 1; temp >>= 1 {
@@ -43,35 +49,60 @@ func createBulletproofPlus(amounts []uint64, masks []*edwards25519.Scalar) (Bpp,
 		R: make([]Hash, logMN),
 	}
 
-	// Генерируем случайные значения для начальных точек
-	// В реальной имплементации это сложные вычисления с векторными commitment'ами
+	// Генерируем криптографически стойкие случайные скаляры
+	alpha := randomScalar()
+	rho := randomScalar()
 
-	// A - агрегированный commitment всех amounts
-	bpp.A = generateCommitmentPoint(amounts, masks)
+	// A = α*G + Σ(aL[i]*Gi + aR[i]*Hi)
+	// где aL, aR - биты amounts
+	bpp.A = computeA(amounts, alpha)
+	// fmt.Printf("A: %x\n", bpp.A)
+	// os.Exit(98426)
 
-	// A1 - вспомогательная точка
-	bpp.A1 = generateRandomPoint(append(bpp.A[:], 0x01))
+	// A1 = ρ*G + Σ(sL[i]*Gi + sR[i]*Hi)
+	// где sL, sR - случайные маскирующие векторы
+	sL, sR := generateBlindingVectors(n * nBits)
+	bpp.A1 = computeA1(sL, sR, rho)
 
-	// B - точка для доказательства
-	bpp.B = generateRandomPoint(append(bpp.A[:], 0x02))
+	// Вычисляем challenges (вызовы Fiat-Shamir)
+	y := computeChallenge(append(bpp.A[:], bpp.A1[:]...))
+	z := computeChallenge(append(y.Bytes(), bpp.A[:]...))
 
-	// R1, S1, D1 - дополнительные точки для протокола
-	bpp.R1 = generateRandomPoint(append(bpp.A[:], 0x03))
-	bpp.S1 = generateRandomPoint(append(bpp.A[:], 0x04))
-	bpp.D1 = generateRandomPoint(append(bpp.A[:], 0x05))
+	// B связывает commitment с доказательством
+	bpp.B = computeB(amounts, masks, y, z)
 
-	// L и R - логарифмическая структура доказательства
-	// Каждая пара (L[i], R[i]) соответствует одному раунду протокола
-	var temp moneroutil.Hash
-	seed := append(bpp.A[:], bpp.A1[:]...)
+	// Вычисляем полиномиальные коэффициенты
+	t1, t2 := computePolynomials(amounts, sL, sR, y, z)
+
+	// R1 = t1*G
+	bpp.R1 = Hash(new(edwards25519.Point).ScalarBaseMult(t1).Bytes())
+
+	// S1 = t2*G
+	bpp.S1 = Hash(new(edwards25519.Point).ScalarBaseMult(t2).Bytes())
+
+	// Вычисляем x challenge
+	x := computeChallenge(append(bpp.R1[:], bpp.S1[:]...))
+
+	// D1 = d1*G + d2*H
+	d1, d2 := computeD1Scalars(alpha, rho, t1, t2, x, z)
+	bpp.D1 = computeD1(d1, d2)
+
+	// Генерируем L и R для inner product argument
+	// Это рекурсивный протокол сжатия векторов
+	aL, aR := convertAmountsToBits(amounts, nBits)
+	applyYPowers(aR, y)
+
 	for i := 0; i < logMN; i++ {
-		temp = moneroutil.Keccak256(seed[:]) // Преобразование в срез
-		seed = temp[:]
-		bpp.L[i] = Hash(seed[:])
+		dL := randomScalar()
+		dR := randomScalar()
 
-		temp = moneroutil.Keccak256(seed)
-		seed = temp[:]
-		bpp.R[i] = Hash(seed)
+		// L[i] и R[i] - это cross-term commitments
+		bpp.L[i] = computeLR(aL, aR, dL, true, i)
+		bpp.R[i] = computeLR(aL, aR, dR, false, i)
+
+		// Fold vectors для следующего раунда
+		challenge := computeChallenge(append(bpp.L[i][:], bpp.R[i][:]...))
+		aL, aR = foldVectors(aL, aR, challenge, i)
 	}
 
 	return bpp, nil
@@ -133,11 +164,88 @@ func hashToPoint(hash []byte) []byte {
 }
 
 func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
-	CLSAGs := []CLSAG{}
+	if len(t.Outputs) == 0 {
+		return nil, fmt.Errorf("no outputs available")
+	}
+
+	pseudoOuts, err := t.calculatePseudoOuts()
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate pseudo outs: %w", err)
+	}
+
+	CLSAGs := make([]CLSAG, len(t.Outputs))
+
+	for i, output := range t.Outputs {
+		// Генерация CLSAG для каждого выхода
+		keyImage := generateKeyImage(t.SecretKey, output.Target[:])
+		pseudoOut := pseudoOuts[i]
+
+		// Генерация значений для S, C1 и D
+		S := generateSValues(t.SecretKey, output.Target[:])
+		C1 := computeChallenge(append(pseudoOut[:], keyImage[:]...)) // Используем псевдо-выход и ключевое изображение
+		D := keyImage                                                // Используем keyImage как D
+
+		clsag := CLSAG{
+			S:  S,
+			C1: Hash(C1.Bytes()),
+			D:  D,
+		}
+		CLSAGs[i] = clsag
+	}
+
 	return CLSAGs, nil
 }
 
+// generateKeyImage создает ключевое изображение на основе секретного ключа и цели
+func generateKeyImage(secretKey Hash, target []byte) Hash {
+	data := append(secretKey[:], target...)
+	hash := moneroutil.Keccak256(data)
+	_ = hash
+	scl := new(edwards25519.Scalar)
+	scalar := new(edwards25519.Scalar)
+	if _, err := scalar.SetCanonicalBytes(secretKey[:]); err != nil {
+		if _, err2 := scalar.SetBytesWithClamping(secretKey[:]); err2 != nil {
+			panic(err2)
+		}
+	}
+	point := new(edwards25519.Point).ScalarBaseMult(scl)
+	return Hash(point.Bytes())
+}
+
+// generateSValues создает массив значений S для CLSAG
+func generateSValues(secretKey Hash, target []byte) []Hash {
+	sValues := make([]Hash, 10) // Пример: создаем 10 значений S
+	for i := 0; i < len(sValues); i++ {
+		data := append(secretKey[:], target...)
+		data = append(data, byte(i))
+		hash := moneroutil.Keccak256(data)
+		sValues[i] = Hash(hash)
+	}
+	return sValues
+}
+
 func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
-	PseudoOuts := []Hash{}
-	return PseudoOuts, nil
+	if len(t.Outputs) == 0 {
+		return nil, fmt.Errorf("no outputs available")
+	}
+
+	pseudoOuts := make([]Hash, len(t.Outputs))
+
+	for i, _ := range t.Outputs {
+		// Генерация точки для mask
+		mask := t.BlindScalars[i]
+		maskPoint := new(edwards25519.Point).ScalarBaseMult(mask)
+
+		// Генерация псевдо-выхода на основе маски и суммы
+		amount := t.BlindAmounts[i]
+		amountBytes := make([]byte, 32)
+		binary.LittleEndian.PutUint64(amountBytes, amount)
+		amountScalar := new(edwards25519.Scalar)
+		amountScalar.SetCanonicalBytes(amountBytes)
+
+		pseudoOutPoint := new(edwards25519.Point).ScalarMult(amountScalar, maskPoint)
+		pseudoOuts[i] = Hash(pseudoOutPoint.Bytes())
+	}
+
+	return pseudoOuts, nil
 }

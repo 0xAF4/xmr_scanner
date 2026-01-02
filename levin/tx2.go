@@ -64,7 +64,6 @@ func NewEmptyTransaction() *Transaction {
 	if h, err := hexTo32(txPrivateKeyHex); err == nil {
 		tx.SecretKey = Hash(h)
 	}
-
 	// privKey, pubKey := moneroutil.NewKeyPair()
 	// tx.SecretKey = Hash(privKey.ToBytes())
 	// tx.PublicKey = Hash(pubKey.ToBytes())
