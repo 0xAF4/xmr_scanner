@@ -248,47 +248,6 @@ func (t *Transaction) writePaymentIdToExtra(paymentId, pubViewKey []byte) error 
 	return nil
 }
 
-func (t *Transaction) signBpp() (Bpp, error) {
-	// Создаём пустую структуру Bpp
-	bpp := Bpp{}
-
-	// Генерация данных для полей структуры Bpp
-	prefixHash := t.PrefixHash() // Хэш префикса транзакции
-
-	// Преобразование результата Keccak256 в тип Hash
-	bpp.A = Hash(moneroutil.Keccak256(prefixHash[:]))
-	bpp.A1 = Hash(moneroutil.Keccak256(append(prefixHash[:], 0x01)))
-	bpp.B = Hash(moneroutil.Keccak256(append(prefixHash[:], 0x02)))
-	bpp.R1 = Hash(moneroutil.Keccak256(append(prefixHash[:], 0x03)))
-	bpp.S1 = Hash(moneroutil.Keccak256(append(prefixHash[:], 0x04)))
-	bpp.D1 = Hash(moneroutil.Keccak256(append(prefixHash[:], 0x05)))
-
-	// Генерация массивов L и R
-	for i := 0; i < 5; i++ {
-		lHash := Hash(moneroutil.Keccak256(append(prefixHash[:], byte(i))))
-		rHash := Hash(moneroutil.Keccak256(append(prefixHash[:], byte(i+5))))
-		bpp.L = append(bpp.L, lHash)
-		bpp.R = append(bpp.R, rHash)
-	}
-
-	// Проверка корректности данных
-	if len(bpp.L) == 0 || len(bpp.R) == 0 {
-		return Bpp{}, fmt.Errorf("failed to generate Bpp: empty L or R")
-	}
-
-	return bpp, nil
-}
-
-func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
-	CLSAGs := []CLSAG{}
-	return CLSAGs, nil
-}
-
-func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
-	PseudoOuts := []Hash{}
-	return PseudoOuts, nil
-}
-
 func (t *Transaction) PrefixHash() Hash {
 	var result []byte
 	result = append(moneroutil.Uint64ToBytes(uint64(t.Version)), moneroutil.Uint64ToBytes(t.UnlockTime)...)
