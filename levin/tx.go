@@ -25,8 +25,10 @@ type Transaction struct {
 	RctSignature   *RctSignature   `json:"rct_signature"`
 	RctSigPrunable *RctSigPrunable `json:"rctsig_prunable"`
 
-	SecretKey Hash `json:"-"`
-	PublicKey Hash `json:"-"`
+	SecretKey    Hash                   `json:"-"`
+	PublicKey    Hash                   `json:"-"`
+	BlindScalars []*edwards25519.Scalar `json:"-"`
+	BlindAmounts []uint64               `json:"-"`
 }
 
 type TxInput struct {
@@ -637,7 +639,7 @@ func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, out
 // - x is the blinding factor (mask) derived from shared secret
 // - a is the amount in atomic units
 // - G is the base point, H is the second base point
-func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (Hash, error) {
+func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKey []byte, outputIndex uint64) (*edwards25519.Scalar, Hash, error) {
 	// Convert amount to atomic units
 	amountAtomic := uint64(amount * 1e12)
 
@@ -648,13 +650,13 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	// Parse recipient's public view key
 	pubViewPoint, err := new(edwards25519.Point).SetBytes(pubViewKey)
 	if err != nil {
-		return Hash{}, fmt.Errorf("invalid public view key: %w", err)
+		return nil, Hash{}, fmt.Errorf("invalid public view key: %w", err)
 	}
 
 	// Parse tx secret key as scalar
 	txSecScalar := new(edwards25519.Scalar)
 	if _, err := txSecScalar.SetCanonicalBytes(txSecretKey); err != nil {
-		return Hash{}, fmt.Errorf("invalid tx secret key: %w", err)
+		return nil, Hash{}, fmt.Errorf("invalid tx secret key: %w", err)
 	}
 
 	// Create scalar 8 (cofactor)
@@ -662,7 +664,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	eightBytes[0] = 8
 	eight := new(edwards25519.Scalar)
 	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
-		return Hash{}, fmt.Errorf("failed to create scalar 8: %w", err)
+		return nil, Hash{}, fmt.Errorf("failed to create scalar 8: %w", err)
 	}
 
 	// Compute 8 * r
@@ -681,7 +683,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	copy(hsHash64, hsHash)
 	hsScalar := new(edwards25519.Scalar)
 	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
-		return Hash{}, fmt.Errorf("failed to derive Hs scalar: %w", err)
+		return nil, Hash{}, fmt.Errorf("failed to derive Hs scalar: %w", err)
 	}
 	hsBytes := hsScalar.Bytes()
 
@@ -694,7 +696,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 
 	blindingFactor := new(edwards25519.Scalar)
 	if _, err := blindingFactor.SetUniformBytes(maskHash64); err != nil {
-		return Hash{}, fmt.Errorf("failed to derive blinding factor: %w", err)
+		return nil, Hash{}, fmt.Errorf("failed to derive blinding factor: %w", err)
 	}
 
 	// Create scalar from amount (little-endian)
@@ -702,7 +704,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	binary.LittleEndian.PutUint64(amountBytes, amountAtomic)
 	amountScalar := new(edwards25519.Scalar)
 	if _, err := amountScalar.SetCanonicalBytes(amountBytes); err != nil {
-		return Hash{}, fmt.Errorf("failed to create amount scalar: %w", err)
+		return nil, Hash{}, fmt.Errorf("failed to create amount scalar: %w", err)
 	}
 
 	// Get H (second base point)
@@ -720,7 +722,7 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	// C = xG + aH
 	commitment := new(edwards25519.Point).Add(xG, aH)
 
-	return Hash(commitment.Bytes()), nil
+	return blindingFactor, Hash(commitment.Bytes()), nil
 }
 
 // getH returns the second generator point H used in Pedersen commitments

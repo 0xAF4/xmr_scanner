@@ -11,61 +11,12 @@ import (
 func (t *Transaction) signBpp() (Bpp, error) {
 	// Bulletproof Plus для доказательства, что суммы выходов положительные
 	// без раскрытия самих сумм
-
-	// Собираем все суммы выходов и их маски (blinding factors)
-	amounts := make([]uint64, len(t.Outputs))
-	masks := make([]*edwards25519.Scalar, len(t.Outputs))
-
-	for i := range t.Outputs {
-		// Получаем сумму из параметров (она должна быть сохранена при создании выхода)
-		// В реальной транзакции это значение известно отправителю
-		amounts[i] = 0 // TODO: нужно сохранять реальные суммы при создании выходов
-
-		// Генерируем или получаем blinding factor для каждого выхода
-		// Это тот же mask, который использовался в CalcOutPk
-		mask, err := t.deriveOutputMask(i)
-		if err != nil {
-			return Bpp{}, fmt.Errorf("failed to derive mask for output %d: %w", i, err)
-		}
-		masks[i] = mask
-	}
-
-	// Создаем Bulletproof Plus
-	bpp, err := createBulletproofPlus(amounts, masks)
+	bpp, err := createBulletproofPlus(t.BlindAmounts, t.BlindScalars)
 	if err != nil {
 		return Bpp{}, fmt.Errorf("failed to create bulletproof: %w", err)
 	}
 
 	return bpp, nil
-}
-
-// deriveOutputMask получает blinding factor (mask) для выхода
-func (t *Transaction) deriveOutputMask(outputIndex int) (*edwards25519.Scalar, error) {
-	if outputIndex >= len(t.Outputs) {
-		return nil, fmt.Errorf("output index out of range")
-	}
-
-	// Находим соответствующий выход и его параметры
-	output := t.Outputs[outputIndex]
-
-	// Извлекаем pubViewKey из адреса получателя (нужно сохранить при создании)
-	// Для корректной работы нужно модифицировать WriteOutput для сохранения этих данных
-
-	// Временное решение: генерируем deterministic mask из tx secret key и индекса
-	data := append(t.SecretKey[:], moneroutil.Uint64ToBytes(uint64(outputIndex))...)
-	data = append(data, []byte("commitment_mask")...)
-	data = append(data, output.Target[:]...)
-
-	maskHash := moneroutil.Keccak256(data)
-	maskHash64 := make([]byte, 64)
-	copy(maskHash64, maskHash[:])
-
-	mask := new(edwards25519.Scalar)
-	if _, err := mask.SetUniformBytes(maskHash64); err != nil {
-		return nil, err
-	}
-
-	return mask, nil
 }
 
 // createBulletproofPlus создает Bulletproof Plus доказательство

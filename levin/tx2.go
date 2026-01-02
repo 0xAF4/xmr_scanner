@@ -178,7 +178,7 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		return fmt.Errorf("failed to encrypt amount: %w", err)
 	}
 
-	outPk, err := CalcOutPk(prm["amount"].(float64), pubViewKey[:], pubSpendKey[:], t.SecretKey[:], currentIndex)
+	blind, outPk, err := CalcOutPk(prm["amount"].(float64), pubViewKey[:], pubSpendKey[:], t.SecretKey[:], currentIndex)
 	if err != nil {
 		return fmt.Errorf("failed to calculate output public key: %w", err)
 	}
@@ -197,6 +197,10 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		Type:    3,
 		ViewTag: HByte(viewTag),
 	})
+
+	t.BlindScalars = append(t.BlindScalars, blind)
+	t.BlindAmounts = append(t.BlindAmounts, uint64(prm["amount"].(float64)*1e12))
+
 	return nil
 }
 
