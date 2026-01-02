@@ -154,9 +154,23 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		return fmt.Errorf("failed to derive view tag: %w", err)
 	}
 
-	derivedKey, err := DerivePublicKey(pubViewKey[:], t.SecretKey[:], pubSpendKey[:], currentIndex)
-	if err != nil {
-		return fmt.Errorf("failed to derive public key for output %d: %w", currentIndex, err)
+	// derivedKey, err := DerivePublicKey(pubViewKey[:], t.SecretKey[:], pubSpendKey[:], currentIndex)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to derive public key for output %d: %w", currentIndex, err)
+	// }
+
+	mPubViewKey := moneroutil.Key(pubSpendKey)
+	mSecretKey := moneroutil.Key(t.SecretKey)
+	mPubSpendKey := moneroutil.Key(pubSpendKey)
+
+	derivation, ok := moneroutil.GenerateKeyDerivation(&mPubViewKey, &mSecretKey)
+	if !ok {
+		return fmt.Errorf("generate key derivation failed")
+	}
+
+	derivedKey, ok := moneroutil.DerivePublicKey(&derivation, currentIndex, &mPubSpendKey)
+	if !ok {
+		return fmt.Errorf("derive public key failed")
 	}
 
 	if val, ok := prm["change_address"].(bool); !ok || !val {

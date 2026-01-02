@@ -211,16 +211,27 @@ func sc_reduce32(in []byte) []byte {
 }
 
 func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64) ([]byte, error) {
+	// Validate input lengths
+	if len(txPubKey) != 32 {
+		return nil, errors.New("txPubKey must be 32 bytes")
+	}
+	if len(privateViewKey) != 32 {
+		return nil, errors.New("privateViewKey must be 32 bytes")
+	}
+	if len(pubSpendKey) != 32 {
+		return nil, errors.New("pubSpendKey must be 32 bytes")
+	}
+
 	// Parse R
 	var R edwards25519.Point
 	if _, err := R.SetBytes(txPubKey); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse txPubKey: %w", err)
 	}
 
 	// Parse a (private view key)
 	var a edwards25519.Scalar
 	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse privateViewKey: %w", err)
 	}
 
 	// Calculate 8 scalar
@@ -254,12 +265,10 @@ func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64)
 	// Parse B (public spend key)
 	var B edwards25519.Point
 	if _, err := B.SetBytes(pubSpendKey); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse pubSpendKey: %w", err)
 	}
 
 	P := new(edwards25519.Point).Add(hsG, &B)
-	// result1 := hex.EncodeToString(P1.Bytes())
-	// result2 := hex.EncodeToString(hsG.Bytes())
 	return P.Bytes(), nil
 }
 
