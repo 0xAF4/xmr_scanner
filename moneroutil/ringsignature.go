@@ -64,9 +64,9 @@ func ParseSignature(buf io.Reader) (result *RingSignatureElement, err error) {
 
 func ParseSignatures(mixinLengths []int, buf io.Reader) (signatures []RingSignature, err error) {
 	// mixinLengths is the number of mixins at each input position
-	sigs := make([]RingSignature, len(mixinLengths), len(mixinLengths))
+	sigs := make([]RingSignature, len(mixinLengths))
 	for i, nMixin := range mixinLengths {
-		sigs[i] = make([]*RingSignatureElement, nMixin, nMixin)
+		sigs[i] = make([]*RingSignatureElement, nMixin)
 		for j := 0; j < nMixin; j++ {
 			sigs[i][j], err = ParseSignature(buf)
 			if err != nil {

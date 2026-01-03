@@ -8,6 +8,8 @@ import (
 	"time"
 
 	moneroutil "xmr_scanner/moneroutil"
+
+	"filippo.io/edwards25519"
 )
 
 type TxPrm map[string]interface{}
@@ -52,27 +54,110 @@ func NewEmptyTransaction() *Transaction {
 		RctSigPrunable: &RctSigPrunable{
 			Nbp: 1,
 			Bpp: []Bpp{
-				Bpp{},
+				{},
 			},
 			CLSAGs:     []CLSAG{},
 			PseudoOuts: []Hash{},
 		},
 	}
-	if h, err := hexTo32(txPublicKeyHex); err == nil {
-		tx.PublicKey = Hash(h)
-	}
+
+	// tx.SecretKey = moneroutil.RandomScalar().ToBytes()
 	if h, err := hexTo32(txPrivateKeyHex); err == nil {
 		tx.SecretKey = Hash(h)
 	}
-	// privKey, pubKey := moneroutil.NewKeyPair()
-	// tx.SecretKey = Hash(privKey.ToBytes())
-	// tx.PublicKey = Hash(pubKey.ToBytes())
-	tx.writePubKeyToExtra()
 
 	return tx
 }
 
-func (t *Transaction) WriteInput(prm TxPrm) error {
+func (t *Transaction) WriteInput(prm TxPrm) {
+	t.PInputs = append(t.PInputs, prm)
+}
+
+func (t *Transaction) WriteOutput(prm TxPrm) {
+	t.POutputs = append(t.POutputs, prm)
+}
+
+func (t *Transaction) CalcExtra() error {
+	//Считаем количество выходов и вычисляем txPublicKey вместе с extra
+	outs := 0
+	pubSpendKey := [32]byte{}
+	pubViewKey := [32]byte{}
+	paymentId := []byte{}
+	err := error(nil)
+	for _, val := range t.POutputs {
+		if val2, ok := val["change_address"].(bool); !ok || !val2 {
+			outs += 1
+			addr := val["address"].(string)
+			pubSpendKey, pubViewKey, err = DecodeAddress(addr) // correct ✅
+			if err != nil {
+				return fmt.Errorf("failed to decode address: %w", err)
+			}
+
+			paymentId, err = ExtractPaymentID(addr)
+			if err != nil {
+				return fmt.Errorf("failed to extract payment ID: %w", err)
+			}
+			if paymentId == nil {
+				paymentId = make([]byte, 8)
+			}
+		}
+	}
+
+	s := new(edwards25519.Scalar)
+	if _, err := s.SetCanonicalBytes(t.SecretKey[:]); err != nil {
+		s.SetUniformBytes(append(t.SecretKey[:], t.SecretKey[:]...))
+	}
+
+	if outs == 1 {
+		D := new(edwards25519.Point)
+		if _, err := D.SetBytes(pubSpendKey[:]); err != nil {
+			panic(err)
+		}
+
+		sD := new(edwards25519.Point).ScalarMult(s, D) // s * D
+		t.PublicKey = Hash(sD.Bytes())
+	} else {
+		sG := new(edwards25519.Point).ScalarBaseMult(s) // s * G
+		t.PublicKey = Hash(sG.Bytes())
+	}
+
+	var buf bytes.Buffer
+
+	buf.WriteByte(0x01)
+	buf.Write(t.PublicKey[:])
+	buf.WriteByte(0x02) // Payment ID tag
+	buf.WriteByte(0x09) // Payment ID Length (16 bytes)
+	buf.WriteByte(0x01) // Encrypted Payment ID flag
+	encryptedPaymentId, err := encryptPaymentID(paymentId, pubViewKey[:], t.SecretKey[:])
+	if err != nil {
+		return err
+	}
+	buf.Write(encryptedPaymentId[:])
+
+	t.Extra = ByteArray(buf.Bytes())
+
+	return nil
+}
+
+func (t *Transaction) CalcInputs() error {
+	for _, val := range t.PInputs {
+		if err := t.writeInput2(val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Transaction) CalcOutputs() error {
+	for _, val := range t.POutputs {
+		if err := t.writeOutput2(val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Transaction) writeInput2(prm TxPrm) error {
 	vout := prm["vout"].(int)
 	indx, err := getOutputIndex(prm["txId"].(string), vout)
 	if err != nil {
@@ -136,11 +221,12 @@ func (t *Transaction) WriteInput(prm TxPrm) error {
 		Type:       0x02,
 		KeyOffsets: mockOffset, //keyOffset,
 		KeyImage:   keyImage.ToBytes(),
+		Address:    prm["address"].(string),
 	})
 	return nil
 }
 
-func (t *Transaction) WriteOutput(prm TxPrm) error {
+func (t *Transaction) writeOutput2(prm TxPrm) error {
 	// Implementation for writing output goes here
 	currentIndex := t.VoutCount
 
@@ -154,16 +240,11 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 		return fmt.Errorf("failed to derive view tag: %w", err)
 	}
 
-	// derivedKey, err := DerivePublicKey(pubViewKey[:], t.SecretKey[:], pubSpendKey[:], currentIndex)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to derive public key for output %d: %w", currentIndex, err)
-	// }
-
-	mPubViewKey := moneroutil.Key(pubSpendKey)
-	mSecretKey := moneroutil.Key(t.SecretKey)
+	mPubViewKey := moneroutil.Key(pubViewKey)
+	mTxSecretKey := moneroutil.Key(t.SecretKey)
 	mPubSpendKey := moneroutil.Key(pubSpendKey)
 
-	derivation, ok := moneroutil.GenerateKeyDerivation(&mPubViewKey, &mSecretKey)
+	derivation, ok := moneroutil.GenerateKeyDerivation(&mPubViewKey, &mTxSecretKey)
 	if !ok {
 		return fmt.Errorf("generate key derivation failed")
 	}
@@ -171,19 +252,6 @@ func (t *Transaction) WriteOutput(prm TxPrm) error {
 	derivedKey, ok := moneroutil.DerivePublicKey(&derivation, currentIndex, &mPubSpendKey)
 	if !ok {
 		return fmt.Errorf("derive public key failed")
-	}
-
-	if val, ok := prm["change_address"].(bool); !ok || !val {
-		paymentId, err := ExtractPaymentID(prm["address"].(string))
-		if err != nil {
-			return fmt.Errorf("failed to extract payment ID: %w", err)
-		}
-		if paymentId == nil {
-			paymentId = make([]byte, 8)
-		}
-		if err := t.writePaymentIdToExtra(paymentId, pubViewKey[:]); err != nil {
-			return fmt.Errorf("failed to write payment ID to extra: %w", err)
-		}
 	}
 
 	amnt, err := EncryptRctAmount(prm["amount"].(float64), pubViewKey[:], t.SecretKey[:], currentIndex)
@@ -223,10 +291,10 @@ func (t *Transaction) SignTransaction() error {
 		return fmt.Errorf("failed to sign bpp: %w", err)
 	}
 
-	CLSAGs, err := t.signCLSAGs()
-	if err != nil {
-		return fmt.Errorf("failed to sign CLSAGs: %w", err)
-	}
+	// CLSAGs, err := t.signCLSAGs()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to sign CLSAGs: %w", err)
+	// }
 
 	PseudoOuts, err := t.calculatePseudoOuts()
 	if err != nil {
@@ -234,34 +302,8 @@ func (t *Transaction) SignTransaction() error {
 	}
 
 	t.RctSigPrunable.Bpp[0] = Bpp
-	t.RctSigPrunable.CLSAGs = CLSAGs
+	// t.RctSigPrunable.CLSAGs = CLSAGs
 	t.RctSigPrunable.PseudoOuts = PseudoOuts
-	return nil
-}
-
-func (t *Transaction) writePubKeyToExtra() {
-	var buf bytes.Buffer
-
-	buf.WriteByte(0x01)
-	buf.Write(t.PublicKey[:])
-
-	t.Extra = ByteArray(buf.Bytes())
-}
-
-func (t *Transaction) writePaymentIdToExtra(paymentId, pubViewKey []byte) error {
-	var buf bytes.Buffer
-
-	buf.WriteByte(0x02) // Payment ID tag
-	buf.WriteByte(0x09) // Payment ID Length (16 bytes)
-	buf.WriteByte(0x01) // Encrypted Payment ID flag
-
-	encryptedPaymentId, err := encryptPaymentID(paymentId, pubViewKey, t.SecretKey[:])
-	if err != nil {
-		return err
-	}
-	buf.Write(encryptedPaymentId[:])
-
-	t.Extra = ByteArray(append(t.Extra, buf.Bytes()...))
 	return nil
 }
 

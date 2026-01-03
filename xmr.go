@@ -271,6 +271,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	}
 
 	timedsync := func(header *levin.Header, raw *levin.PortableStorage) error {
+		_ = raw
 		if header.Flags == levin.LevinPacketReponse {
 			if levin.IsValidReturnCode(header.ReturnCode) {
 				p.n.NotifyWithLevel("GET TIMED SYNC RESPONSE SUCCESS", LevelSuccess)
@@ -285,6 +286,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	}
 
 	processqueue := func(header *levin.Header, raw *levin.PortableStorage) error {
+		_ = header
 		for _, entry := range raw.Entries {
 			if entry.Name == "m_block_ids" {
 				if hashes, err := ProcessBlockIds(entry.Value); err == nil {
@@ -311,6 +313,7 @@ func (p *ScannerXMR) handleMessage(header *levin.Header, raw *levin.PortableStor
 	}
 
 	processblocks := func(header *levin.Header, raw *levin.PortableStorage) error {
+		_ = header
 		for _, entry := range raw.Entries {
 			if entry.Name == "blocks" {
 				for _, blk := range entry.Entries() {

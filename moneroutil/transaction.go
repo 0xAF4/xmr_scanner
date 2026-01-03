@@ -159,7 +159,8 @@ func (t *Transaction) ExpandTransaction(outputKeys [][]CtKey) {
 	}
 
 	r.message = Key(t.PrefixHash())
-	if r.sigType == RCTTypeFull {
+	switch r.sigType {
+	case RCTTypeFull:
 		r.mixRing = make([][]CtKey, len(outputKeys[0]))
 		for i := 0; i < len(outputKeys); i++ {
 			r.mixRing[i] = make([]CtKey, len(outputKeys))
@@ -173,7 +174,7 @@ func (t *Transaction) ExpandTransaction(outputKeys [][]CtKey) {
 			txInWithKey, _ := txIn.(*TxInToKey)
 			r.mlsagSigs[0].ii[i] = txInWithKey.KeyImage
 		}
-	} else if r.sigType == RCTTypeSimple {
+	case RCTTypeSimple:
 		r.mixRing = outputKeys
 		r.mlsagSigs = make([]MlsagSig, len(t.Vin))
 		for i, txIn := range t.Vin {
@@ -220,7 +221,7 @@ func ParseTxInToKey(buf io.Reader) (txIn *TxInToKey, err error) {
 	if err != nil {
 		return
 	}
-	t.KeyOffsets = make([]uint64, keyOffsetLen, keyOffsetLen)
+	t.KeyOffsets = make([]uint64, keyOffsetLen)
 	for i := 0; i < int(keyOffsetLen); i++ {
 		t.KeyOffsets[i], err = ReadVarInt(buf)
 		if err != nil {
@@ -328,7 +329,7 @@ func ParseTransactionPrefix(buf io.Reader) (*TransactionPrefix, error) {
 		return nil, err
 	}
 	var mixinLengths []int
-	t.Vin = make([]TxInSerializer, int(numInputs), int(numInputs))
+	t.Vin = make([]TxInSerializer, int(numInputs))
 	for i := 0; i < int(numInputs); i++ {
 		t.Vin[i], err = ParseTxIn(buf)
 		if err != nil {
@@ -343,7 +344,7 @@ func ParseTransactionPrefix(buf io.Reader) (*TransactionPrefix, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.Vout = make([]*TxOut, int(numOutputs), int(numOutputs))
+	t.Vout = make([]*TxOut, int(numOutputs))
 	for i := 0; i < int(numOutputs); i++ {
 		t.Vout[i], err = ParseTxOut(buf)
 		if err != nil {
@@ -379,7 +380,7 @@ func ParseTransaction(buf io.Reader) (transaction *Transaction, err error) {
 		return
 	}
 	var mixinLengths []int
-	t.Vin = make([]TxInSerializer, int(numInputs), int(numInputs))
+	t.Vin = make([]TxInSerializer, int(numInputs))
 	for i := 0; i < int(numInputs); i++ {
 		t.Vin[i], err = ParseTxIn(buf)
 		if err != nil {
@@ -394,7 +395,7 @@ func ParseTransaction(buf io.Reader) (transaction *Transaction, err error) {
 	if err != nil {
 		return
 	}
-	t.Vout = make([]*TxOut, int(numOutputs), int(numOutputs))
+	t.Vout = make([]*TxOut, int(numOutputs))
 	for i := 0; i < int(numOutputs); i++ {
 		t.Vout[i], err = ParseTxOut(buf)
 		if err != nil {

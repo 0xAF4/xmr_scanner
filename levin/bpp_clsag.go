@@ -56,8 +56,6 @@ func createBulletproofPlus(amounts []uint64, masks []*edwards25519.Scalar) (Bpp,
 	// A = α*G + Σ(aL[i]*Gi + aR[i]*Hi)
 	// где aL, aR - биты amounts
 	bpp.A = computeA(amounts, alpha)
-	// fmt.Printf("A: %x\n", bpp.A)
-	// os.Exit(98426)
 
 	// A1 = ρ*G + Σ(sL[i]*Gi + sR[i]*Hi)
 	// где sL, sR - случайные маскирующие векторы
@@ -169,6 +167,7 @@ func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
 	}
 
 	pseudoOuts, err := t.calculatePseudoOuts()
+	_ = pseudoOuts
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate pseudo outs: %w", err)
 	}
@@ -178,7 +177,7 @@ func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
 	for i, output := range t.Outputs {
 		// Генерация CLSAG для каждого выхода
 		keyImage := generateKeyImage(t.SecretKey, output.Target[:])
-		pseudoOut := pseudoOuts[i]
+		pseudoOut := Hash{} // pseudoOuts[i]
 
 		// Генерация значений для S, C1 и D
 		S := generateSValues(t.SecretKey, output.Target[:])
@@ -225,26 +224,28 @@ func generateSValues(secretKey Hash, target []byte) []Hash {
 }
 
 func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
-	if len(t.Outputs) == 0 {
-		return nil, fmt.Errorf("no outputs available")
+	if len(t.Inputs) == 0 {
+		return nil, fmt.Errorf("no inputs available")
 	}
 
-	pseudoOuts := make([]Hash, len(t.Outputs))
+	pseudoOuts := make([]Hash, len(t.Inputs))
 
-	for i, _ := range t.Outputs {
-		// Генерация точки для mask
-		mask := t.BlindScalars[i]
-		maskPoint := new(edwards25519.Point).ScalarBaseMult(mask)
+	for i := range t.Inputs {
+		// Декодируем адрес
+		pubSpendKey, pubViewKey, err := DecodeAddress(t.Inputs[i].Address)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode address: %w", err)
+		}
 
-		// Генерация псевдо-выхода на основе маски и суммы
-		amount := t.BlindAmounts[i]
-		amountBytes := make([]byte, 32)
-		binary.LittleEndian.PutUint64(amountBytes, amount)
-		amountScalar := new(edwards25519.Scalar)
-		amountScalar.SetCanonicalBytes(amountBytes)
+		// Вычисляем outPk
+		_, outPk, err := CalcOutPk(0, pubViewKey[:], pubSpendKey[:], t.SecretKey[:], uint64(i))
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate output public key: %w", err)
+		}
 
-		pseudoOutPoint := new(edwards25519.Point).ScalarMult(amountScalar, maskPoint)
-		pseudoOuts[i] = Hash(pseudoOutPoint.Bytes())
+		// Сохраняем результат в pseudoOuts
+		pseudoOuts[i] = Hash(outPk)
+		// fmt.Printf("Hash(outPk): %x\n", Hash(outPk))
 	}
 
 	return pseudoOuts, nil

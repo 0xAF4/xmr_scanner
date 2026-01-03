@@ -11,7 +11,7 @@ import (
 type NotifierMock struct{}
 
 // var timeForFilename = time.Now().Format("15-04-05_02.01.2006") // ЧЧ-ММ-СС_ДД.ММ.ГГГГ
-var timeForFilename = "1"
+var timeForFilename = "2"
 
 func (n *NotifierMock) NotifyWithLevel(message string, level string) error {
 	// Форматируем временную метку

@@ -116,7 +116,6 @@ func AddKeys(sum, k1, k2 *Key) {
 	tmp := new(ExtendedGroupElement)
 	c.ToExtended(tmp)
 	tmp.ToBytes(sum)
-	return
 }
 
 // compute a*G + b*B
@@ -125,7 +124,6 @@ func AddKeys2(result, a, b, B *Key) {
 	RPoint := new(ProjectiveGroupElement)
 	GeDoubleScalarMultVartime(RPoint, b, BPoint, a)
 	RPoint.ToBytes(result)
-	return
 }
 
 // subtract two points A - B
@@ -138,7 +136,6 @@ func SubKeys(diff, k1, k2 *Key) {
 	tmp := new(ExtendedGroupElement)
 	c.ToExtended(tmp)
 	tmp.ToBytes(diff)
-	return
 }
 
 func (k *Key64) Serialize() (result []byte) {

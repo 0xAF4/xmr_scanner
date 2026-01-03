@@ -19,13 +19,13 @@ func (p *ScannerXMR) WriteBlockToDBLoop() {
 
 			err2 := p.n.NotifyWithLevel(fmt.Sprintf("4 WriteBlockToDB Init: %s", key), LevelInfo)
 			if err2 != nil {
-				fmt.Println(fmt.Sprintf("4 WriteBlockToDB Init: %s", key))
+				fmt.Printf("4 WriteBlockToDB Init: %s\n", key)
 			}
 
 			if err := p.db.ProcessBlock(value.GetChainName(), value.ConvertToDBBlock()); err == nil {
 				err2 = p.n.NotifyWithLevel(fmt.Sprintf("4 WriteBlockToDB Success: %s", key), LevelSuccess)
 				if err2 != nil {
-					fmt.Println(fmt.Sprintf("4 WriteBlockToDB Success: %s", key))
+					fmt.Printf("4 WriteBlockToDB Success: %s\n", key)
 				}
 				p.lastBlockHash = value.Hash
 				p.lastBlockHeight++
@@ -34,7 +34,7 @@ func (p *ScannerXMR) WriteBlockToDBLoop() {
 			} else {
 				err2 = p.n.NotifyWithLevel(fmt.Sprintf("4 WriteBlockToDB Error: %s; %s", key, err.Error()), LevelError)
 				if err2 != nil {
-					fmt.Println(fmt.Sprintf("4 WriteBlockToDB Error: %s; %s", key, err.Error()))
+					fmt.Printf("4 WriteBlockToDB Error: %s; %s\n", key, err.Error())
 				}
 			}
 			return false
@@ -46,7 +46,7 @@ func (p *ScannerXMR) WriteBlockToDBLoop() {
 }
 
 func (p *ScannerXMR) showHeader(header *levin.Header) {
-	p.n.NotifyWithLevel(fmt.Sprintf("Message received:"), LevelInfo)
+	p.n.NotifyWithLevel("Message received:", LevelInfo)
 	p.n.NotifyWithLevel(fmt.Sprintf(" - Length: %d", header.Length), LevelInfo)
 	p.n.NotifyWithLevel(fmt.Sprintf(" - ExpectsResponse: %t", header.ExpectsResponse), LevelInfo)
 	p.n.NotifyWithLevel(fmt.Sprintf(" - Command: %d", header.Command), LevelInfo)
@@ -144,6 +144,7 @@ func (p *ScannerXMR) requestGetNextBlock() error {
 }
 
 func (p *ScannerXMR) requestBlockData(hash string) error {
+	_ = hash
 	// msgGetData := wire.NewMsgGetData()
 	// hashstruct, _ := chainhash.NewHashFromStr(hash)
 	// msgGetData.AddInvVect(wire.NewInvVect(wire.InvTypeBlock, hashstruct))

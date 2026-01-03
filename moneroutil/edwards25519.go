@@ -1109,7 +1109,6 @@ func GeDoubleScalarMultPrecompVartime(r *ProjectiveGroupElement, a *Key, A *Exte
 		}
 		t.ToProjective(r)
 	}
-	return
 }
 
 // equal returns 1 if b == c and 0 otherwise.

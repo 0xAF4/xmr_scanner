@@ -25,6 +25,8 @@ type Transaction struct {
 	RctSignature   *RctSignature   `json:"rct_signature"`
 	RctSigPrunable *RctSigPrunable `json:"rctsig_prunable"`
 
+	POutputs     []TxPrm                `json:"-"`
+	PInputs      []TxPrm                `json:"-"`
 	SecretKey    Hash                   `json:"-"`
 	PublicKey    Hash                   `json:"-"`
 	BlindScalars []*edwards25519.Scalar `json:"-"`
@@ -37,6 +39,7 @@ type TxInput struct {
 	Amount     uint64   `json:"amount"`
 	KeyOffsets []uint64 `json:"key_offsets"`
 	KeyImage   Hash     `json:"k_image"`
+	Address    string   `json:"-"`
 }
 
 type TxOutput struct {
@@ -108,9 +111,10 @@ func (tx *Transaction) ParseTx() {
 		// тип входа (0xff = coinbase)
 		in.Type, _ = reader.ReadByte()
 
-		if in.Type == 0xff { // Coinbase input
+		switch in.Type {
+		case 0xff:
 			in.Height, _ = ReadVarint(reader)
-		} else if in.Type == 0x02 {
+		case 0x02:
 			in.Amount, _ = ReadVarint(reader)
 			ofsCount, _ := ReadVarint(reader)
 			for j := 0; j < int(ofsCount); j++ {
@@ -118,7 +122,7 @@ func (tx *Transaction) ParseTx() {
 				in.KeyOffsets = append(in.KeyOffsets, ofs)
 			}
 			reader.Read(in.KeyImage[:])
-		} else {
+		default:
 			fmt.Printf("⚠️ Unknown TxInput type: 0x%X\n", in.Type)
 		}
 		tx.Inputs = append(tx.Inputs, in)

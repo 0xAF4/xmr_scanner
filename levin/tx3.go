@@ -179,11 +179,7 @@ func call(reqBody any, respBody any) error {
 		return err
 	}
 
-	req, err := http.NewRequest(
-		"POST",
-		fmt.Sprintf("https://xmr3.doggett.tech:18089/json_rpc"),
-		bytes.NewReader(data),
-	)
+	req, err := http.NewRequest("POST", "https://xmr3.doggett.tech:18089/json_rpc", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
