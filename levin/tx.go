@@ -729,6 +729,35 @@ func CalcOutPk(amount float64, pubViewKey []byte, pubSpendKey []byte, txSecretKe
 	return blindingFactor, Hash(commitment.Bytes()), nil
 }
 
+func CalcCommitment(amount uint64, mask [32]byte) (Hash, error) {
+	blindingFactor := new(edwards25519.Scalar)
+	if _, err := blindingFactor.SetCanonicalBytes(mask[:]); err != nil {
+		return Hash{}, fmt.Errorf("failed to derive blinding factor: %w", err)
+	}
+
+	// Create scalar from amount (little-endian)
+	amountBytes := make([]byte, 32)
+	binary.LittleEndian.PutUint64(amountBytes, amount)
+	amountScalar := new(edwards25519.Scalar)
+	if _, err := amountScalar.SetCanonicalBytes(amountBytes); err != nil {
+		return Hash{}, fmt.Errorf("failed to create amount scalar: %w", err)
+	}
+
+	xG := new(edwards25519.Point).ScalarBaseMult(blindingFactor)
+	aH := new(edwards25519.Point).ScalarMult(amountScalar, getH())
+	commitment := new(edwards25519.Point).Add(xG, aH)
+
+	return Hash(commitment.Bytes()), nil
+}
+
+func CalcScalars(scalars []*edwards25519.Scalar) (*edwards25519.Scalar, error) {
+	sum := edwards25519.NewScalar()
+	for _, scalar := range scalars {
+		sum.Add(sum, scalar)
+	}
+	return sum, nil
+}
+
 // getH returns the second generator point H used in Pedersen commitments
 // H is derived as hash_to_point(keccak256(G))
 func getH() *edwards25519.Point {

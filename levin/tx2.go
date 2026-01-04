@@ -86,8 +86,11 @@ func (t *Transaction) CalcExtra() error {
 	err := error(nil)
 	for _, val := range t.POutputs {
 		if val2, ok := val["change_address"].(bool); !ok || !val2 {
-			outs += 1
 			addr := val["address"].(string)
+			if isSubAddress(addr) {
+				outs += 1
+			}
+
 			pubSpendKey, pubViewKey, err = DecodeAddress(addr) // correct ✅
 			if err != nil {
 				return fmt.Errorf("failed to decode address: %w", err)
@@ -100,6 +103,7 @@ func (t *Transaction) CalcExtra() error {
 			if paymentId == nil {
 				paymentId = make([]byte, 8)
 			}
+
 		}
 	}
 
@@ -285,25 +289,25 @@ func (t *Transaction) writeOutput2(prm TxPrm) error {
 	return nil
 }
 
-func (t *Transaction) SignTransaction() error {
+func (t *Transaction) SignTransaction(tx1 Transaction) error {
 	Bpp, err := t.signBpp()
 	if err != nil {
 		return fmt.Errorf("failed to sign bpp: %w", err)
 	}
 
-	// CLSAGs, err := t.signCLSAGs()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to sign CLSAGs: %w", err)
-	// }
-
 	PseudoOuts, err := t.calculatePseudoOuts()
 	if err != nil {
 		return fmt.Errorf("failed to calculate pseudo outputs: %w", err)
 	}
+	t.RctSigPrunable.PseudoOuts = PseudoOuts
+
+	CLSAGs, err := t.signCLSAGs(tx1)
+	if err != nil {
+		return fmt.Errorf("failed to sign CLSAGs: %w", err)
+	}
 
 	t.RctSigPrunable.Bpp[0] = Bpp
-	// t.RctSigPrunable.CLSAGs = CLSAGs
-	t.RctSigPrunable.PseudoOuts = PseudoOuts
+	t.RctSigPrunable.CLSAGs = CLSAGs
 	return nil
 }
 

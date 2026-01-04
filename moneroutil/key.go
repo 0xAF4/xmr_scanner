@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+
+	"filippo.io/edwards25519"
 )
 
 const (
@@ -41,6 +43,13 @@ func (p *Key) HashToEC() (result *ExtendedGroupElement) {
 	GeMul8(&p2, &p1)
 	p2.ToExtended(result)
 	return
+}
+
+func (p *Key) KeyToScalar() *edwards25519.Scalar {
+	bytes := p.ToBytes()
+	scalar := new(edwards25519.Scalar)
+	scalar.SetCanonicalBytes(bytes[:])
+	return scalar
 }
 
 func RandomScalar() (result *Key) {

@@ -96,6 +96,21 @@ func KeccakByte(data []byte) byte {
 	return h[0]
 }
 
+// Проверка, является ли адрес субадресом
+func isSubAddress(addr string) bool {
+	b, err := decodeMoneroBase58(addr)
+	if err != nil {
+		return false
+	}
+
+	if len(b) < 69 {
+		return false
+	}
+
+	networkByte := b[0]
+	return networkByte == 0x2A
+}
+
 // DecodeAddress decodes a standard or integrated Monero address and returns public spend and view keys
 func DecodeAddress(addr string) (pubSpend [32]byte, pubView [32]byte, err error) {
 	b, err := decodeMoneroBase58(addr)

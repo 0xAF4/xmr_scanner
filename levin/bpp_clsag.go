@@ -2,13 +2,16 @@ package levin
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"os"
 	moneroutil "xmr_scanner/moneroutil"
 
 	"filippo.io/edwards25519"
 )
 
 func (t *Transaction) signBpp() (Bpp, error) {
+	bpp := Bpp{}
 	// Bulletproof Plus для доказательства, что суммы выходов положительные
 	// без раскрытия самих сумм
 	amounts := []uint64{}
@@ -161,38 +164,37 @@ func hashToPoint(hash []byte) []byte {
 	return edwards25519.NewGeneratorPoint().Bytes()
 }
 
-func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
+func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 	if len(t.Outputs) == 0 {
 		return nil, fmt.Errorf("no outputs available")
 	}
 
-	pseudoOuts, err := t.calculatePseudoOuts()
-	_ = pseudoOuts
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate pseudo outs: %w", err)
-	}
+	CLSAGs := make([]CLSAG, len(t.Inputs))
 
-	CLSAGs := make([]CLSAG, len(t.Outputs))
+	for i, input := range t.Inputs {
+		clsag := CLSAG{}
 
-	for i, output := range t.Outputs {
-		// Генерация CLSAG для каждого выхода
-		keyImage := generateKeyImage(t.SecretKey, output.Target[:])
-		pseudoOut := Hash{} // pseudoOuts[i]
+		// for range len(input.KeyOffsets) {
+		// 	key := moneroutil.RandomScalar()
+		// 	clsag.S = append(clsag.S, Hash(key.ToBytes()))
+		// }
+		clsag.S = tx1.RctSigPrunable.CLSAGs[i].S // For debug
 
-		// Генерация значений для S, C1 и D
-		S := generateSValues(t.SecretKey, output.Target[:])
-		C1 := computeChallenge(append(pseudoOut[:], keyImage[:]...)) // Используем псевдо-выход и ключевое изображение
-		D := keyImage                                                // Используем keyImage как D
-
-		clsag := CLSAG{
-			S:  S,
-			C1: Hash(C1.Bytes()),
-			D:  D,
+		d, c1, err := SignInput(t.PrefixHash(), t.RctSigPrunable.PseudoOuts[i], input.KeyImage, clsag.S)
+		if err != nil {
+			return []CLSAG{}, fmt.Errorf("Error during creation of clsag: %e", err)
 		}
+		clsag.D = d
+		clsag.C1 = c1
+
 		CLSAGs[i] = clsag
 	}
 
 	return CLSAGs, nil
+}
+
+func SignInput(prefixHash, pseudoOut, KeyImage Hash, S []Hash) (d, c1 Hash, err error) {
+	return
 }
 
 // generateKeyImage создает ключевое изображение на основе секретного ключа и цели
@@ -211,42 +213,52 @@ func generateKeyImage(secretKey Hash, target []byte) Hash {
 	return Hash(point.Bytes())
 }
 
-// generateSValues создает массив значений S для CLSAG
-func generateSValues(secretKey Hash, target []byte) []Hash {
-	sValues := make([]Hash, 10) // Пример: создаем 10 значений S
-	for i := 0; i < len(sValues); i++ {
-		data := append(secretKey[:], target...)
-		data = append(data, byte(i))
-		hash := moneroutil.Keccak256(data)
-		sValues[i] = Hash(hash)
-	}
-	return sValues
-}
-
 func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
 	if len(t.Inputs) == 0 {
 		return nil, fmt.Errorf("no inputs available")
 	}
 
 	pseudoOuts := make([]Hash, len(t.Inputs))
+	sumpouts := edwards25519.NewScalar()
 
-	for i := range t.Inputs {
-		// Декодируем адрес
-		pubSpendKey, pubViewKey, err := DecodeAddress(t.Inputs[i].Address)
+	for i := range len(t.Inputs) - 1 {
+		randomMask := moneroutil.RandomScalar()
+		sumpouts.Add(sumpouts, randomMask.KeyToScalar())
+		amountAtomic := uint64(t.PInputs[i]["amount"].(float64) * 1e12)
+		pseudoOut, err := CalcCommitment(amountAtomic, randomMask.ToBytes())
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode address: %w", err)
+			return []Hash{}, fmt.Errorf("Error of calc commitment: %w", err)
 		}
 
-		// Вычисляем outPk
-		_, outPk, err := CalcOutPk(0, pubViewKey[:], pubSpendKey[:], t.SecretKey[:], uint64(i))
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate output public key: %w", err)
-		}
-
-		// Сохраняем результат в pseudoOuts
-		pseudoOuts[i] = Hash(outPk)
-		// fmt.Printf("Hash(outPk): %x\n", Hash(outPk))
+		pseudoOuts[i] = Hash(pseudoOut)
 	}
 
+	lastI := len(pseudoOuts) - 1
+	amountAtomic := uint64(t.PInputs[lastI]["amount"].(float64) * 1e12)
+
+	sumouts, err := CalcScalars(t.BlindScalars)
+	if err != nil {
+		return []Hash{}, fmt.Errorf("Error of calc output amounts: %w", err)
+	}
+
+	mask := new(edwards25519.Scalar).Subtract(sumouts, sumpouts)
+	pseudoOut, err := CalcCommitment(amountAtomic, [32]byte(mask.Bytes()))
+	if err != nil {
+		return []Hash{}, fmt.Errorf("Error of calc commitment: %w", err)
+	}
+
+	pseudoOuts[lastI] = Hash(pseudoOut)
+
 	return pseudoOuts, nil
+}
+
+func TestCalcCommitment() {
+	mask, _ := hex.DecodeString("5ab65ac3b926ac41be0f2278f464bfac27f14b002b2cac36a9c4bb419f74bb00")
+	commitment, err := CalcCommitment(uint64(3818238111), [32]byte(mask))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Expected: 08076718e57cabf2b85f676ff1bd9dc12bfc01b08e6fa7bba4d640081390acc6")
+	fmt.Printf("commitment: %x\n", commitment)
+	os.Exit(1)
 }
