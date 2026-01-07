@@ -30,6 +30,7 @@ type Transaction struct {
 	SecretKey    Hash                   `json:"-"`
 	PublicKey    Hash                   `json:"-"`
 	BlindScalars []*edwards25519.Scalar `json:"-"`
+	InputScalars []*edwards25519.Scalar `json:"-"`
 	BlindAmounts []uint64               `json:"-"`
 }
 
@@ -756,6 +757,11 @@ func CalcScalars(scalars []*edwards25519.Scalar) (*edwards25519.Scalar, error) {
 		sum.Add(sum, scalar)
 	}
 	return sum, nil
+}
+
+func GetFullMessage(RctSign *RctSignature) (Hash, error) {
+	//TODO: to-do
+	return Hash{}, nil
 }
 
 // getH returns the second generator point H used in Pedersen commitments

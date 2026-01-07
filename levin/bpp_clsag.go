@@ -2,9 +2,7 @@ package levin
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	"os"
 	moneroutil "xmr_scanner/moneroutil"
 
 	"filippo.io/edwards25519"
@@ -18,9 +16,6 @@ func (t *Transaction) signBpp() (Bpp, error) {
 	for _, val := range t.BlindAmounts {
 		amounts = append(amounts, val)
 	}
-	// for _, _ = range t.BlindAmounts {
-	// 	amounts = append(amounts, 0)
-	// }
 
 	bpp, err := createBulletproofPlus(amounts, t.BlindScalars)
 	if err != nil {
@@ -168,8 +163,18 @@ func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 	if len(t.Outputs) == 0 {
 		return nil, fmt.Errorf("no outputs available")
 	}
+	if len(t.Inputs) == 0 {
+		return nil, fmt.Errorf("no inputs available")
+	}
 
 	CLSAGs := make([]CLSAG, len(t.Inputs))
+
+	// Получаем full_message один раз для всех входов
+	full_message, err := GetFullMessage(t.RctSignature)
+	if err != nil {
+		return nil, err
+	}
+	_ = full_message
 
 	for i, input := range t.Inputs {
 		clsag := CLSAG{}
@@ -179,6 +184,18 @@ func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 		// 	clsag.S = append(clsag.S, Hash(key.ToBytes()))
 		// }
 		clsag.S = tx1.RctSigPrunable.CLSAGs[i].S // For debug
+
+		full_message, err := GetFullMessage(t.RctSignature)
+		if err != nil {
+			return nil, err
+		}
+		_ = full_message
+
+		// fmt.Printf("a[i]=%x\n", t.InputScalars[i].Bytes())
+		// fmt.Printf("pseudoOuts[i]=%x\n", t.RctSigPrunable.PseudoOuts[i])
+		// os.Exit(333)
+
+		// rv.p.CLSAGs[i] = proveRctCLSAGSimple(full_message??, rv.mixRing[i]??, inSk[i]??, t.InputScalars[i], t.RctSigPrunable.PseudoOuts[i], index[i]??, hwdev??);
 
 		d, c1, err := SignInput(t.PrefixHash(), t.RctSigPrunable.PseudoOuts[i], input.KeyImage, clsag.S)
 		if err != nil {
@@ -223,6 +240,7 @@ func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
 
 	for i := range len(t.Inputs) - 1 {
 		randomMask := moneroutil.RandomScalar()
+		t.InputScalars = append(t.InputScalars, randomMask.KeyToScalar())
 		sumpouts.Add(sumpouts, randomMask.KeyToScalar())
 		amountAtomic := uint64(t.PInputs[i]["amount"].(float64) * 1e12)
 		pseudoOut, err := CalcCommitment(amountAtomic, randomMask.ToBytes())
@@ -242,6 +260,7 @@ func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
 	}
 
 	mask := new(edwards25519.Scalar).Subtract(sumouts, sumpouts)
+	t.InputScalars = append(t.InputScalars, mask)
 	pseudoOut, err := CalcCommitment(amountAtomic, [32]byte(mask.Bytes()))
 	if err != nil {
 		return []Hash{}, fmt.Errorf("Error of calc commitment: %w", err)
@@ -250,15 +269,4 @@ func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
 	pseudoOuts[lastI] = Hash(pseudoOut)
 
 	return pseudoOuts, nil
-}
-
-func TestCalcCommitment() {
-	mask, _ := hex.DecodeString("5ab65ac3b926ac41be0f2278f464bfac27f14b002b2cac36a9c4bb419f74bb00")
-	commitment, err := CalcCommitment(uint64(3818238111), [32]byte(mask))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Expected: 08076718e57cabf2b85f676ff1bd9dc12bfc01b08e6fa7bba4d640081390acc6")
-	fmt.Printf("commitment: %x\n", commitment)
-	os.Exit(1)
 }
