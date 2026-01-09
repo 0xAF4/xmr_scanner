@@ -1,8 +1,12 @@
 package moneroutil
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+
+	"filippo.io/edwards25519"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -382,4 +386,16 @@ func ParseRingCtSignature(buf io.Reader, nInputs, nOutputs, nMixin int) (result 
 	}
 	result = r
 	return
+}
+
+func TranscriptUpdate(transcript *Key, V []byte) Key {
+	// 3. Update transcript
+	var buf bytes.Buffer
+	buf.Write(transcript[:])
+	buf.Write(V)
+	result := Key(Keccak256(buf.Bytes()))
+
+	ScReduce32(&result)
+	*transcript = result
+	return result
 }

@@ -20,9 +20,23 @@ func (p *Key) FromBytes(b [KeyLength]byte) {
 	*p = b
 }
 
+func (p *Key) FromPoint(point *edwards25519.Point) {
+	p.FromBytes([32]byte(point.Bytes()))
+}
+
+func (p *Key) FromScalar(scalar *edwards25519.Scalar) {
+	p.FromBytes([32]byte(scalar.Bytes()))
+}
+
 func (p *Key) ToBytes() (result [KeyLength]byte) {
 	result = [KeyLength]byte(*p)
 	return
+}
+
+func (p *Key) ToBytes2() []byte {
+	result := make([]byte, KeyLength)
+	copy(result, p[:])
+	return result
 }
 
 func (p *Key) PubKey() (pubKey *Key) {
@@ -50,6 +64,13 @@ func (p *Key) KeyToScalar() *edwards25519.Scalar {
 	scalar := new(edwards25519.Scalar)
 	scalar.SetCanonicalBytes(bytes[:])
 	return scalar
+}
+
+func (p *Key) KeyToPoint() *edwards25519.Point {
+	bytes := p.ToBytes()
+	point := new(edwards25519.Point)
+	point.SetBytes(bytes[:])
+	return point
 }
 
 func RandomScalar() (result *Key) {
@@ -91,4 +112,14 @@ func ParseKeyFromHex(hexKey string) (result Key, err error) {
 
 	copy(result[:], data)
 	return
+}
+
+func ScMul(out *Key, a Key, b Key) {
+	ScReduce32(&a)
+	ScReduce32(&b)
+	aS, _ := new(edwards25519.Scalar).SetCanonicalBytes(a.ToBytes2())
+	bS, _ := new(edwards25519.Scalar).SetCanonicalBytes(b.ToBytes2())
+	scal := new(edwards25519.Scalar).Multiply(aS, bS)
+	key := Key(scal.Bytes())
+	*out = key
 }
