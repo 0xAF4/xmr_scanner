@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
-	"os"
 	"time"
 
 	moneroutil "xmr_scanner/moneroutil"
@@ -185,7 +184,7 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	}
 	keyOffset = mockOffset
 
-	mixins, realIndx, err := GetMixins(keyOffset, indx)
+	mixins, OrderIndx, err := GetMixins(keyOffset, indx)
 	if err != nil {
 		return fmt.Errorf("Get Mixins Error: %w", err)
 	}
@@ -219,14 +218,10 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
 
-	// mask := (*mixins)[*realIndx].Mask
-	mask, _ := hex.DecodeString("3bf5b6f4c78d9cde633868965becaebc66fc86e9909e33cb8b0290225ad48106")
-	decodedMask, err := DecodeRctMask(txPubKey, privViewKeyBytes, uint64(vout), mask[:])
+	inputMask, err := generateBulletproofPlusMask(txPubKey, privViewKeyBytes, uint64(vout))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to generate mask: %w", err)
 	}
-	fmt.Printf("decodedMask: %x\n", *decodedMask)
-	os.Exit(1)
 
 	val, ok := prm["amount"].(float64)
 	if !ok {
@@ -237,13 +232,16 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	t.VinCount += 1
 	t.Inputs = append(t.Inputs, TxInput{
 		// Amount:     uint64(val * 1e12),
-		Type:              0x02,
-		KeyOffsets:        keyOffset,
-		KeyImage:          keyImage.ToBytes(),
-		Address:           prm["address"].(string),
-		Mixins:            *mixins,
-		RealIndx:          *realIndx,
-		DerivedPrivateKey: derivedPriKey.ToBytes(),
+		Type:       0x02,
+		KeyOffsets: keyOffset,
+		KeyImage:   keyImage.ToBytes(),
+		Address:    prm["address"].(string),
+		Mixins:     *mixins,
+		OrderIndx:  *OrderIndx,
+		InSk: Mixin{
+			Dest: derivedPriKey.ToBytes(),
+			Mask: inputMask,
+		},
 	})
 	return nil
 }

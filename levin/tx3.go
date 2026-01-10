@@ -244,10 +244,10 @@ func GetMixins(keyOffsets []uint64, inputIndx uint64) (*[]Mixin, *int, error) {
 	}
 
 	// заполняем outputs
-	var realInxd int
+	var OrderIndx int
 	for i, idx := range indxs {
 		if idx == inputIndx {
-			realInxd = i
+			OrderIndx = i
 		}
 		reqd.Outputs = append(reqd.Outputs, getOut{
 			Amount: 0, // RingCT → всегда 0
@@ -301,5 +301,5 @@ func GetMixins(keyOffsets []uint64, inputIndx uint64) (*[]Mixin, *int, error) {
 		})
 	}
 
-	return mixins, &realInxd, nil
+	return mixins, &OrderIndx, nil
 }
