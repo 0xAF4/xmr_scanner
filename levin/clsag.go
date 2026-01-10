@@ -24,13 +24,42 @@ func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 	return CLSAGs, nil
 }
 
-func proveRctCLSAGSimple(prefixHash Hash, mixins []Mixin, inSk Mixin, a Hash, pseudoOut Hash, realIndx int) (clsag CLSAG, err error) {
-	// for range len(input.KeyOffsets) {
-	// 	key := moneroutil.RandomScalar()
-	// 	key.FromScalar(randomScalar())
-	// 	clsag.S = append(clsag.S, Hash(key.ToBytes()))
-	// }
-	return
+func proveRctCLSAGSimple(message Hash, mixins []Mixin, inSk Mixin, a Hash, pseudoOut Hash, realIndx int) (clsag CLSAG, err error) {
+
+	rows := 1
+
+	// Инициализация векторов
+	sk := make([]moneroutil.Key, rows+1)
+	P := make([]moneroutil.Key, 0, len(mixins))
+	C := make([]moneroutil.Key, 0, len(mixins))
+	C_nonzero := make([]moneroutil.Key, 0, len(mixins))
+
+	// Обработка публичных ключей из mixins
+	for _, mixin := range mixins {
+		P = append(P, moneroutil.Key(mixin.Dest))
+		C_nonzero = append(C_nonzero, moneroutil.Key(mixin.Mask))
+
+		// C[i] = mixin.CommitmentMask - pseudoOut
+		var tmp moneroutil.Key
+		mask := moneroutil.Key(mixin.Mask)
+		pOut := moneroutil.Key(pseudoOut)
+		moneroutil.SubKeys(&tmp, &mask, &pOut)
+		C = append(C, tmp)
+	}
+
+	// sk[0] = inSk.TxPublicKey (dest)
+	sk[0] = moneroutil.Key(inSk.Dest)
+
+	// sk[1] = inSk.CommitmentMask - a
+	moneroutil.ScSub(&sk[1], (*moneroutil.Key)(&inSk.Mask), (*moneroutil.Key)(&a))
+
+	// Вызов CLSAG_Gen
+	return ClsagGen(message, P, sk[0], C, sk[1], C_nonzero, moneroutil.Key(pseudoOut), realIndx)
+}
+
+func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil.Key, z moneroutil.Key, C_nonzero []moneroutil.Key, C_offset moneroutil.Key, l int) (CLSAG, error) {
+	// TODO: implement CLSAG_Gen
+	return CLSAG{}, nil
 }
 
 func GetFullMessage(prefixHash moneroutil.Key, rv *RctSignature, rv2 *RctSigPrunable) (moneroutil.Key, error) {
