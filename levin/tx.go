@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"slices"
 
 	"filippo.io/edwards25519"
@@ -595,6 +596,90 @@ func DecodeRctAmount(txPubKey []byte, privateViewKey []byte, outputIndex uint64,
 	}
 
 	return float64(amount) / 1e12, nil
+}
+
+// decodeRctAmount decodes an encrypted RCT amount
+func DecodeRctMask(txPubKey []byte, privateViewKey []byte, outputIndex uint64, encodedMask []byte) (*Hash, error) {
+
+	sharedSecret, _ := SharedSecret(txPubKey, privateViewKey)
+	amountBytes := make([]byte, 32)
+	binary.LittleEndian.PutUint64(amountBytes, 3818238111)
+	amountScalar := new(edwards25519.Scalar)
+	amountScalar.SetCanonicalBytes(amountBytes)
+	b := amountScalar.Bytes()
+	maskInput := append([]byte{}, sharedSecret...)
+	maskInput = append(maskInput, b...)
+
+	maskHash := keccak256(maskInput)
+
+	maskHash64 := make([]byte, 64)
+	copy(maskHash64, maskHash)
+
+	blindingFactor := new(edwards25519.Scalar)
+	if _, err := blindingFactor.SetUniformBytes(maskHash64); err != nil {
+		// return nil, Hash{}, fmt.Errorf("failed to derive blinding factor: %w", err)
+	}
+	fmt.Printf("blindingFactor: %x\n", blindingFactor.Bytes())
+	os.Exit(11)
+
+	// Parse R (tx pubkey)
+	Rpt, err := new(edwards25519.Point).SetBytes(txPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tx public key: %w", err)
+	}
+
+	// Parse scalar a (private view key)
+	a := new(edwards25519.Scalar)
+	if _, err := a.SetCanonicalBytes(privateViewKey); err != nil {
+		return nil, fmt.Errorf("invalid private view key scalar bytes: %w", err)
+	}
+
+	// Scalar eight = 8
+	eightBytes := make([]byte, 32)
+	eightBytes[0] = 8
+	eight := new(edwards25519.Scalar)
+	if _, err := eight.SetCanonicalBytes(eightBytes); err != nil {
+		return nil, fmt.Errorf("creating scalar 8 failed: %w", err)
+	}
+
+	// eightA = eight * a
+	eightA := new(edwards25519.Scalar).Multiply(eight, a)
+
+	// Compute shared secret: sharedPoint = (8*a) * R
+	sharedPoint := new(edwards25519.Point).ScalarMult(eightA, Rpt)
+	sharedBytes := sharedPoint.Bytes()
+
+	// Monero hash_to_scalar (Hs):
+	// 1. Concatenate 8aR with varint(outputIndex)
+	// 2. Hash with keccak256 to get 32 bytes
+	// 3. Interpret as scalar (reduce mod l) - this is Hs(8aR || i)
+	hashInput := append(sharedBytes, encodeVarint(outputIndex)...)
+	hsHash := keccak256(hashInput) // 32 bytes
+
+	// For sc_reduce32: pad the 32-byte hash to 64 bytes for SetUniformBytes
+	// SetUniformBytes expects 64 bytes and reduces mod l internally
+	hsHash64 := make([]byte, 64)
+	copy(hsHash64, hsHash)
+
+	hsScalar := new(edwards25519.Scalar)
+	if _, err := hsScalar.SetUniformBytes(hsHash64); err != nil {
+		return nil, fmt.Errorf("hash_to_scalar failed: %w", err)
+	}
+
+	// Get the canonical bytes of the scalar Hs
+	hsBytes := hsScalar.Bytes()
+
+	// Compute amount mask: keccak256("amount" || Hs)
+	maskKey := keccak256(append([]byte("mask"), hsBytes...))
+
+	// XOR first 8 bytes (little-endian) to get amount
+	var decodedMask [32]byte
+	for i := 0; i < 32; i++ {
+		decodedMask[i] = encodedMask[i] ^ maskKey[i]
+	}
+
+	h := Hash(decodedMask)
+	return &h, nil
 }
 
 func EncryptRctAmount(amount float64, pubViewKey []byte, txSecretKey []byte, outputIndex uint64) (HAmount, error) {

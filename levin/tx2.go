@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	moneroutil "xmr_scanner/moneroutil"
@@ -217,6 +218,15 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	if err != nil {
 		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
+
+	// mask := (*mixins)[*realIndx].Mask
+	mask, _ := hex.DecodeString("3bf5b6f4c78d9cde633868965becaebc66fc86e9909e33cb8b0290225ad48106")
+	decodedMask, err := DecodeRctMask(txPubKey, privViewKeyBytes, uint64(vout), mask[:])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("decodedMask: %x\n", *decodedMask)
+	os.Exit(1)
 
 	val, ok := prm["amount"].(float64)
 	if !ok {

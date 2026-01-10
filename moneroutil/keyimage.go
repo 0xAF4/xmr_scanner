@@ -14,7 +14,6 @@ func CreateKeyImage(pubSpendKey, secSpendKey, secViewKey, txPubKey *Key, outInde
 	if !ok {
 		return nil, nil, fmt.Errorf("derive public key failed")
 	}
-	fmt.Printf("derivedPubKey: %x\n", derivedPubKey)
 
 	derivedPriKey := DeriveSecretKey(&derivation, outIndex, secSpendKey)
 	if *derivedPriKey.PubKey() != derivedPubKey {
