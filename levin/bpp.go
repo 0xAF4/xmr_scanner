@@ -136,6 +136,7 @@ func createBulletproofPlus(amounts []uint64, masks []*edwards25519.Scalar) (Bpp,
 			sv8Key    moneroutil.Key
 			HKey      moneroutil.Key
 		)
+
 		gamma8 := new(edwards25519.Scalar).Multiply(mask, INV_EIGHT)
 		amountScalar := AmountToScalar(amounts[i])
 		sv8 := new(edwards25519.Scalar).Multiply(amountScalar, INV_EIGHT)
@@ -645,6 +646,7 @@ func (t *Transaction) calculatePseudoOuts() ([]Hash, error) {
 	}
 
 	mask := new(edwards25519.Scalar).Subtract(sumouts, sumpouts)
+
 	t.InputScalars = append(t.InputScalars, mask)
 	pseudoOut, err := CalcCommitment(amountAtomic, [32]byte(mask.Bytes()))
 	if err != nil {

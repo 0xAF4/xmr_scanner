@@ -4,24 +4,25 @@ import (
 	"fmt"
 )
 
-func CreateKeyImage(pubSpendKey, secSpendKey, secViewKey, txPubKey *Key, outIndex uint64) (*Key, error) {
+func CreateKeyImage(pubSpendKey, secSpendKey, secViewKey, txPubKey *Key, outIndex uint64) (*Key, *Key, error) {
 	derivation, ok := GenerateKeyDerivation(txPubKey, secViewKey)
 	if !ok {
-		return nil, fmt.Errorf("generate key derivation failed")
+		return nil, nil, fmt.Errorf("generate key derivation failed")
 	}
 
 	derivedPubKey, ok := DerivePublicKey(&derivation, outIndex, pubSpendKey)
 	if !ok {
-		return nil, fmt.Errorf("derive public key failed")
+		return nil, nil, fmt.Errorf("derive public key failed")
 	}
+	fmt.Printf("derivedPubKey: %x\n", derivedPubKey)
 
 	derivedPriKey := DeriveSecretKey(&derivation, outIndex, secSpendKey)
 	if *derivedPriKey.PubKey() != derivedPubKey {
-		return nil, fmt.Errorf("derived secret key doesn't match derived public key")
+		return nil, nil, fmt.Errorf("derived secret key doesn't match derived public key")
 	}
 
 	keyImage := GenerateKeyImage(&derivedPriKey)
-	return &keyImage, nil
+	return &keyImage, &derivedPriKey, nil
 }
 
 func GenerateKeyDerivation(pubKey, secKey *Key) (keyDerivation Key, ok bool) {

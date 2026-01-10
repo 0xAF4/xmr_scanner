@@ -35,13 +35,15 @@ type Transaction struct {
 }
 
 type TxInput struct {
-	Type       uint8    `json:"-"`
-	Height     uint64   `json:"-"`
-	Amount     uint64   `json:"amount"`
-	KeyOffsets []uint64 `json:"key_offsets"`
-	KeyImage   Hash     `json:"k_image"`
-	Address    string   `json:"-"`
-	Mixins     []Mixin  `json:"mixins,omitempty"`
+	Type              uint8    `json:"-"`
+	Height            uint64   `json:"-"`
+	Amount            uint64   `json:"amount"`
+	KeyOffsets        []uint64 `json:"key_offsets"`
+	KeyImage          Hash     `json:"k_image"`
+	Address           string   `json:"-"`
+	Mixins            []Mixin  `json:"mixins,omitempty"`
+	RealIndx          int      `json:"-"`
+	DerivedPrivateKey Hash     `json:"-"`
 }
 
 type Mixin struct {

@@ -184,7 +184,7 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	}
 	keyOffset = mockOffset
 
-	mixins, err := GetMixins(keyOffset)
+	mixins, realIndx, err := GetMixins(keyOffset, indx)
 	if err != nil {
 		return fmt.Errorf("Get Mixins Error: %w", err)
 	}
@@ -213,7 +213,7 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	mPubSpendKey := moneroutil.Key(pubSpendKey)
 	mTxPubKey := moneroutil.Key(txPubKey)
 	mSecSpendKey, err := moneroutil.ParseKeyFromHex(prm["privateSpendKey"].(string))
-	keyImage, err := moneroutil.CreateKeyImage(&mPubSpendKey, &mSecSpendKey, &mPrivViewKey, &mTxPubKey, uint64(vout))
+	keyImage, derivedPriKey, err := moneroutil.CreateKeyImage(&mPubSpendKey, &mSecSpendKey, &mPrivViewKey, &mTxPubKey, uint64(vout))
 	if err != nil {
 		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
@@ -227,11 +227,13 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	t.VinCount += 1
 	t.Inputs = append(t.Inputs, TxInput{
 		// Amount:     uint64(val * 1e12),
-		Type:       0x02,
-		KeyOffsets: keyOffset,
-		KeyImage:   keyImage.ToBytes(),
-		Address:    prm["address"].(string),
-		Mixins:     *mixins,
+		Type:              0x02,
+		KeyOffsets:        keyOffset,
+		KeyImage:          keyImage.ToBytes(),
+		Address:           prm["address"].(string),
+		Mixins:            *mixins,
+		RealIndx:          *realIndx,
+		DerivedPrivateKey: derivedPriKey.ToBytes(),
 	})
 	return nil
 }

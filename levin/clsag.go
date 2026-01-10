@@ -15,7 +15,12 @@ func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 	}
 
 	for i, input := range t.Inputs {
-		CLSAGs[i], err = SignInput(Hash(full_message), t.RctSigPrunable.PseudoOuts[i], input)
+		// full_message, rv.mixRing[i], inSk[i], a[i], pseudoOuts[i], index[i], hwdev
+		inSk, err := t.getInSk(i)
+		if err != nil {
+			return []CLSAG{}, fmt.Errorf("Error during creation of inSk: %e", err)
+		}
+		CLSAGs[i], err = SignInput(Hash(full_message), input.Mixins, inSk, Hash(t.InputScalars[i].Bytes()), t.RctSigPrunable.PseudoOuts[i], input.RealIndx)
 		if err != nil {
 			return []CLSAG{}, fmt.Errorf("Error during creation of clsag: %e", err)
 		}
@@ -24,12 +29,20 @@ func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
 	return CLSAGs, nil
 }
 
-func SignInput(prefixHash, pseudoOut Hash, input TxInput) (clsag CLSAG, err error) {
-	for range len(input.KeyOffsets) {
-		key := moneroutil.RandomScalar()
-		key.FromScalar(randomScalar())
-		clsag.S = append(clsag.S, Hash(key.ToBytes()))
+func (t *Transaction) getInSk(i int) (Mixin, error) {
+	inSk := Mixin{
+		Dest: t.Inputs[i].DerivedPrivateKey,
 	}
+
+	return inSk, nil
+}
+
+func SignInput(prefixHash Hash, mixins []Mixin, inSk Mixin, a Hash, pseudoOut Hash, realIndx int) (clsag CLSAG, err error) {
+	// for range len(input.KeyOffsets) {
+	// 	key := moneroutil.RandomScalar()
+	// 	key.FromScalar(randomScalar())
+	// 	clsag.S = append(clsag.S, Hash(key.ToBytes()))
+	// }
 	return
 }
 

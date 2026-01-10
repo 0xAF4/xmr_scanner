@@ -233,7 +233,7 @@ type Out struct {
 	Unlocked bool   `json:"unlocked"`
 }
 
-func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
+func GetMixins(keyOffsets []uint64, inputIndx uint64) (*[]Mixin, *int, error) {
 	indxs := keyOffsets
 	for i := 1; i < len(indxs); i++ {
 		indxs[i] = indxs[i] + indxs[i-1]
@@ -244,7 +244,11 @@ func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
 	}
 
 	// заполняем outputs
-	for _, idx := range indxs {
+	var realInxd int
+	for i, idx := range indxs {
+		if idx == inputIndx {
+			realInxd = i
+		}
 		reqd.Outputs = append(reqd.Outputs, getOut{
 			Amount: 0, // RingCT → всегда 0
 			Index:  uint64(idx),
@@ -253,12 +257,12 @@ func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
 
 	data, err := json.Marshal(reqd)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	req, err := http.NewRequest("POST", "https://xmr.unshakled.net:443/get_outs", bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -267,13 +271,13 @@ func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"daemon rpc http %d: %s",
 			resp.StatusCode,
 			string(body),
@@ -297,5 +301,5 @@ func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
 		})
 	}
 
-	return mixins, nil
+	return mixins, &realInxd, nil
 }
