@@ -1,105 +1,98 @@
 package levin
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	moneroutil "xmr_scanner/moneroutil"
-
-	"filippo.io/edwards25519"
 )
 
 func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
-	if len(t.Outputs) == 0 {
-		return nil, fmt.Errorf("no outputs available")
-	}
-	if len(t.Inputs) == 0 {
-		return nil, fmt.Errorf("no inputs available")
-	}
-
 	CLSAGs := make([]CLSAG, len(t.Inputs))
 
-	// Получаем full_message один раз для всех входов
-	full_message, err := GetFullMessage(t.RctSignature)
+	full_message, err := GetFullMessage(moneroutil.Key(t.PrefixHash()), t.RctSignature, t.RctSigPrunable)
 	if err != nil {
 		return nil, err
 	}
-	_ = full_message
 
 	for i, input := range t.Inputs {
-		clsag := CLSAG{}
-
-		for range len(input.KeyOffsets) {
-			key := moneroutil.RandomScalar()
-			key.FromScalar(randomScalar())
-			clsag.S = append(clsag.S, Hash(key.ToBytes()))
-		}
-
-		full_message, err := GetFullMessage(t.RctSignature)
-		if err != nil {
-			return nil, err
-		}
-		_ = full_message
-
-		// fasdmt.Printf("a[i]=%x\n", t.InputScalars[i].Bytes())
-		// fasdmt.Printf("pseudoOuts[i]=%x\n", t.RctSigPrunable.PseudoOuts[i])
-		// os.Exit(333)
-
-		// rv.p.CLSAGs[i] = proveRctCLSAGSimple(full_message??, rv.mixRing[i]??, inSk[i]??, t.InputScalars[i], t.RctSigPrunable.PseudoOuts[i], index[i]??, hwdev??);
-
-		d, c1, err := SignInput(t.PrefixHash(), t.RctSigPrunable.PseudoOuts[i], input.KeyImage, clsag.S)
+		CLSAGs[i], err = SignInput(Hash(full_message), t.RctSigPrunable.PseudoOuts[i], input)
 		if err != nil {
 			return []CLSAG{}, fmt.Errorf("Error during creation of clsag: %e", err)
 		}
-		clsag.D = d
-		clsag.C1 = c1
-
-		CLSAGs[i] = clsag
 	}
 
 	return CLSAGs, nil
 }
 
-func SignInput(prefixHash, pseudoOut, KeyImage Hash, S []Hash) (d, c1 Hash, err error) {
+func SignInput(prefixHash, pseudoOut Hash, input TxInput) (clsag CLSAG, err error) {
+	for range len(input.KeyOffsets) {
+		key := moneroutil.RandomScalar()
+		key.FromScalar(randomScalar())
+		clsag.S = append(clsag.S, Hash(key.ToBytes()))
+	}
 	return
 }
 
-// generateKeyImage создает ключевое изображение на основе секретного ключа и цели
-func generateKeyImage(secretKey Hash, target []byte) Hash {
-	data := append(secretKey[:], target...)
-	hash := moneroutil.Keccak256(data)
-	_ = hash
-	scl := new(edwards25519.Scalar)
-	scalar := new(edwards25519.Scalar)
-	if _, err := scalar.SetCanonicalBytes(secretKey[:]); err != nil {
-		if _, err2 := scalar.SetBytesWithClamping(secretKey[:]); err2 != nil {
-			panic(err2)
+func GetFullMessage(prefixHash moneroutil.Key, rv *RctSignature, rv2 *RctSigPrunable) (moneroutil.Key, error) {
+
+	hashes := make([]moneroutil.Key, 0, 3)
+	hashes = append(hashes, prefixHash)
+
+	// Сериализуем rctSigBase, Хешируем sig_base
+	sigBaseBlob := serializeRctSigBase(rv)
+	sigBaseHash := keccak256(sigBaseBlob)
+	hashes = append(hashes, moneroutil.Key(sigBaseHash))
+
+	kv := make([]moneroutil.Key, 0)
+	for _, p := range rv2.Bpp {
+		kv = append(kv, moneroutil.Key(p.A))
+		kv = append(kv, moneroutil.Key(p.A1))
+		kv = append(kv, moneroutil.Key(p.B))
+		kv = append(kv, moneroutil.Key(p.R1))
+		kv = append(kv, moneroutil.Key(p.S1))
+		kv = append(kv, moneroutil.Key(p.D1))
+
+		for n := 0; n < len(p.L); n++ {
+			kv = append(kv, moneroutil.Key(p.L[n]))
+		}
+
+		for n := 0; n < len(p.R); n++ {
+			kv = append(kv, moneroutil.Key(p.R[n]))
 		}
 	}
-	point := new(edwards25519.Point).ScalarBaseMult(scl)
-	return Hash(point.Bytes())
+
+	// Хешируем kv
+	kvHash := cnFastHashKeyV(kv)
+	hashes = append(hashes, kvHash)
+	prehash := cnFastHashKeyV(hashes)
+
+	return prehash, nil
 }
 
-// generateCommitmentPoint создает Pedersen commitment для массива сумм
-func generateCommitmentPoint(amounts []uint64, masks []*edwards25519.Scalar) Hash {
-	// C = sum(mask[i] * G + amount[i] * H)
-	result := edwards25519.NewIdentityPoint()
-	H := getH()
+// serializeRctSigBase сериализует базовую часть RCT подписи
+func serializeRctSigBase(rv *RctSignature) []byte {
+	var buf bytes.Buffer
 
-	for i, amount := range amounts {
-		// mask[i] * G
-		maskG := new(edwards25519.Point).ScalarBaseMult(masks[i])
+	buf.WriteByte(6)
+	buf.Write(encodeVarint(rv.TxnFee))
 
-		// amount[i] * H
-		amountBytes := make([]byte, 32)
-		binary.LittleEndian.PutUint64(amountBytes, amount)
-		amountScalar := new(edwards25519.Scalar)
-		amountScalar.SetCanonicalBytes(amountBytes)
-		amountH := new(edwards25519.Point).ScalarMult(amountScalar, H)
-
-		// Суммируем
-		commitment := new(edwards25519.Point).Add(maskG, amountH)
-		result = new(edwards25519.Point).Add(result, commitment)
+	for _, ecdh := range rv.EcdhInfo {
+		buf.Write(ecdh.Amount[:])
 	}
 
-	return Hash(result.Bytes())
+	for _, outpk := range rv.OutPk {
+		buf.Write(outpk[:])
+	}
+
+	return buf.Bytes()
+}
+
+// cnFastHashKeyV хеширует вектор ключей
+func cnFastHashKeyV(kv []moneroutil.Key) moneroutil.Key {
+	var buf bytes.Buffer
+	for _, k := range kv {
+		buf.Write(k[:])
+	}
+	hash := keccak256(buf.Bytes())
+	return moneroutil.Key(hash)
 }

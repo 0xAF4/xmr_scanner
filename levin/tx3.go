@@ -2,16 +2,17 @@ package levin
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
 	"sort"
 	"strings"
-	moneroutil "xmr_scanner/moneroutil"
 )
 
 const (
@@ -206,26 +207,95 @@ func call(reqBody any, respBody any) error {
 	return json.NewDecoder(resp.Body).Decode(respBody)
 }
 
-const (
-	txInGenMarker    = 0xff
-	txInToKeyMarker  = 2
-	txOutToKeyMarker = 2
-)
-
-func (i *TxInput) Serialize() []byte {
-	var result []byte
-	result = append([]byte{txInToKeyMarker}, moneroutil.Uint64ToBytes(i.Amount)...)
-	result = append(result, moneroutil.Uint64ToBytes(uint64(len(i.KeyOffsets)))...)
-	for _, keyOffset := range i.KeyOffsets {
-		result = append(result, moneroutil.Uint64ToBytes(keyOffset)...)
-	}
-	result = append(result, i.KeyImage[:]...)
-	return result
+type getOut struct {
+	Amount uint64 `json:"amount"`
+	Index  uint64 `json:"index"`
 }
 
-func (o *TxOutput) Serialize() []byte {
-	amount := uint64(o.Amount * 1e12)
-	result := append(moneroutil.Uint64ToBytes(amount), txOutToKeyMarker)
-	result = append(result, o.Target[:]...)
-	return result
+// структура запроса
+type getOutsReq struct {
+	Outputs []getOut `json:"outputs"`
+}
+
+type GetOutsResp struct {
+	Credits   uint64 `json:"credits"`
+	Outs      []Out  `json:"outs"`
+	Status    string `json:"status"`
+	TopHash   string `json:"top_hash"`
+	Untrusted bool   `json:"untrusted"`
+}
+
+type Out struct {
+	Height   uint64 `json:"height"`
+	Key      string `json:"key"`
+	Mask     string `json:"mask"`
+	Txid     string `json:"txid"`
+	Unlocked bool   `json:"unlocked"`
+}
+
+func GetMixins(keyOffsets []uint64) (*[]Mixin, error) {
+	indxs := keyOffsets
+	for i := 1; i < len(indxs); i++ {
+		indxs[i] = indxs[i] + indxs[i-1]
+	}
+
+	reqd := getOutsReq{
+		Outputs: make([]getOut, 0, len(indxs)),
+	}
+
+	// заполняем outputs
+	for _, idx := range indxs {
+		reqd.Outputs = append(reqd.Outputs, getOut{
+			Amount: 0, // RingCT → всегда 0
+			Index:  uint64(idx),
+		})
+	}
+
+	data, err := json.Marshal(reqd)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", "https://xmr.unshakled.net:443/get_outs", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf(
+			"daemon rpc http %d: %s",
+			resp.StatusCode,
+			string(body),
+		)
+	}
+
+	var respS GetOutsResp
+	body, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(body, &respS); err != nil {
+		log.Fatal(err)
+	}
+
+	mixins := new([]Mixin)
+	for _, out := range respS.Outs {
+		dest, _ := hex.DecodeString(out.Key)
+		mask, _ := hex.DecodeString(out.Mask)
+
+		*mixins = append(*mixins, Mixin{
+			Dest: Hash(dest),
+			Mask: Hash(mask),
+		})
+	}
+
+	return mixins, nil
 }

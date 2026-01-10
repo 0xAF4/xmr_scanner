@@ -41,6 +41,12 @@ type TxInput struct {
 	KeyOffsets []uint64 `json:"key_offsets"`
 	KeyImage   Hash     `json:"k_image"`
 	Address    string   `json:"-"`
+	Mixins     []Mixin  `json:"mixins,omitempty"`
+}
+
+type Mixin struct {
+	Dest Hash `json:"dest"`
+	Mask Hash `json:"mask"`
 }
 
 type TxOutput struct {
@@ -503,11 +509,6 @@ func computeViewTag(txPubKey []byte, privateViewKey []byte, outputIndex uint64) 
 	return hash[0]
 }
 
-// ComputeViewTagForDebug is an exported wrapper for computeViewTag used by debug tools/tests.
-func ComputeViewTagForDebug(txPubKey []byte, privateViewKey []byte, outputIndex uint64) byte {
-	return computeViewTag(txPubKey, privateViewKey, outputIndex)
-}
-
 // extractTxPubKey extracts the transaction public key from the Extra field
 // Format: 0x01 (tag) + 32 bytes (public key)
 func extractTxPubKey(extra []byte) ([]byte, error) {
@@ -759,11 +760,6 @@ func CalcScalars(scalars []*edwards25519.Scalar) (*edwards25519.Scalar, error) {
 	return sum, nil
 }
 
-func GetFullMessage(RctSign *RctSignature) (Hash, error) {
-	//TODO: to-do
-	return Hash{}, nil
-}
-
 // getH returns the second generator point H used in Pedersen commitments
 // H is derived as hash_to_point(keccak256(G))
 func getH() *edwards25519.Point {
@@ -821,7 +817,27 @@ func encodeVarint(n uint64) []byte {
 	return buf
 }
 
-// EncodeVarint is an exported wrapper for encodeVarint for debugging/tests
-func EncodeVarint(n uint64) []byte {
-	return encodeVarint(n)
+func (i *TxInput) Serialize() []byte {
+	var buf bytes.Buffer
+
+	buf.WriteByte(2) //txInToKeyMarker
+	buf.Write(encodeVarint(i.Amount))
+	buf.Write(encodeVarint(uint64(len(i.KeyOffsets))))
+
+	for _, keyOffset := range i.KeyOffsets {
+		buf.Write(encodeVarint(keyOffset))
+	}
+
+	buf.Write(i.KeyImage[:])
+	return buf.Bytes()
+}
+
+func (o *TxOutput) Serialize() []byte {
+	var buf bytes.Buffer
+	buf.Write(encodeVarint(0))
+	buf.WriteByte(o.Type)
+	buf.Write(o.Target[:])
+	buf.WriteByte(byte(o.ViewTag))
+
+	return buf.Bytes()
 }

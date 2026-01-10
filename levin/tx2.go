@@ -182,7 +182,12 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	if err != nil {
 		return fmt.Errorf("failed to build key offsets: %w", err)
 	}
-	_ = keyOffset
+	keyOffset = mockOffset
+
+	mixins, err := GetMixins(keyOffset)
+	if err != nil {
+		return fmt.Errorf("Get Mixins Error: %w", err)
+	}
 
 	privViewKeyBytes, err := hexTo32(prm["privateViewKey"].(string)) // correct ✅
 	if err != nil {
@@ -223,9 +228,10 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 	t.Inputs = append(t.Inputs, TxInput{
 		// Amount:     uint64(val * 1e12),
 		Type:       0x02,
-		KeyOffsets: mockOffset, //keyOffset,
+		KeyOffsets: keyOffset,
 		KeyImage:   keyImage.ToBytes(),
 		Address:    prm["address"].(string),
+		Mixins:     *mixins,
 	})
 	return nil
 }
@@ -294,6 +300,7 @@ func (t *Transaction) SignTransaction(tx1 Transaction) error {
 	if err != nil {
 		return fmt.Errorf("failed to sign bpp: %w", err)
 	}
+	t.RctSigPrunable.Bpp[0] = Bpp
 
 	PseudoOuts, err := t.calculatePseudoOuts()
 	if err != nil {
@@ -306,26 +313,30 @@ func (t *Transaction) SignTransaction(tx1 Transaction) error {
 		return fmt.Errorf("failed to sign CLSAGs: %w", err)
 	}
 
-	t.RctSigPrunable.Bpp[0] = Bpp
 	t.RctSigPrunable.CLSAGs = CLSAGs
 	return nil
 }
 
 func (t *Transaction) PrefixHash() Hash {
-	var result []byte
-	result = append(moneroutil.Uint64ToBytes(uint64(t.Version)), moneroutil.Uint64ToBytes(t.UnlockTime)...)
-	result = append(result, moneroutil.Uint64ToBytes(t.VinCount)...)
-	for _, txIn := range t.Inputs {
-		result = append(result, txIn.Serialize()...)
-	}
-	result = append(result, moneroutil.Uint64ToBytes(t.VoutCount)...)
-	for _, txOut := range t.Outputs {
-		result = append(result, txOut.Serialize()...)
-	}
-	result = append(result, moneroutil.Uint64ToBytes(uint64(len(t.Extra)))...)
-	result = append(result, t.Extra...)
+	var buf bytes.Buffer
 
-	hash := moneroutil.Keccak256(result)
+	buf.Write(encodeVarint(uint64(t.Version)))
+	buf.Write(encodeVarint(t.UnlockTime))
+
+	buf.Write(encodeVarint(t.VinCount))
+	for _, txIn := range t.Inputs {
+		buf.Write(txIn.Serialize())
+	}
+
+	buf.Write(encodeVarint(t.VoutCount))
+	for _, txOut := range t.Outputs {
+		buf.Write(txOut.Serialize())
+	}
+
+	buf.Write(encodeVarint(uint64(len(t.Extra))))
+	buf.Write(t.Extra)
+
+	hash := keccak256(buf.Bytes())
 	return Hash(hash)
 }
 

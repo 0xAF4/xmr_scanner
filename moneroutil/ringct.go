@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-
-	"filippo.io/edwards25519"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
-	RCTTypeNull = iota
-	RCTTypeFull
-	RCTTypeSimple
+	RCTTypeNull            uint8 = 0
+	RCTTypeFull            uint8 = 1
+	RCTTypeSimple          uint8 = 2
+	RCTTypeBulletproof     uint8 = 3
+	RCTTypeBulletproof2    uint8 = 4
+	RCTTypeCLSAG           uint8 = 5
+	RCTTypeBulletproofPlus uint8 = 6
 )
 
 // Pedersen Commitment is generated from this struct
