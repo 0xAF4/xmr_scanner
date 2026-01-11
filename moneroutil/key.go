@@ -1,6 +1,7 @@
 package moneroutil
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -122,4 +123,85 @@ func ScMul(out *Key, a Key, b Key) {
 	scal := new(edwards25519.Scalar).Multiply(aS, bS)
 	key := Key(scal.Bytes())
 	*out = key
+}
+
+const (
+	RCTTypeNull            uint8 = 0
+	RCTTypeFull            uint8 = 1
+	RCTTypeSimple          uint8 = 2
+	RCTTypeBulletproof     uint8 = 3
+	RCTTypeBulletproof2    uint8 = 4
+	RCTTypeCLSAG           uint8 = 5
+	RCTTypeBulletproofPlus uint8 = 6
+)
+
+// Range proof commitments
+type Key64 [64]Key
+
+func (k *Key) ToExtended() (result *ExtendedGroupElement) {
+	result = new(ExtendedGroupElement)
+	result.FromBytes(k)
+	return
+}
+
+// multiply a scalar by H (second curve point of Pedersen Commitment)
+func ScalarMultH(scalar *Key) (result *Key) {
+	h := new(ExtendedGroupElement)
+	h.FromBytes(&H)
+	resultPoint := new(ProjectiveGroupElement)
+	GeScalarMult(resultPoint, scalar, h)
+	result = new(Key)
+	resultPoint.ToBytes(result)
+	return
+}
+
+// add two points together
+func AddKeys(sum, k1, k2 *Key) {
+	a := k1.ToExtended()
+	b := new(CachedGroupElement)
+	k2.ToExtended().ToCached(b)
+	c := new(CompletedGroupElement)
+	geAdd(c, a, b)
+	tmp := new(ExtendedGroupElement)
+	c.ToExtended(tmp)
+	tmp.ToBytes(sum)
+}
+
+// compute a*G + b*B
+func AddKeys2(result, a, b, B *Key) {
+	BPoint := B.ToExtended()
+	RPoint := new(ProjectiveGroupElement)
+	GeDoubleScalarMultVartime(RPoint, b, BPoint, a)
+	RPoint.ToBytes(result)
+}
+
+// subtract two points A - B
+func SubKeys(diff, k1, k2 *Key) {
+	a := k1.ToExtended()
+	b := new(CachedGroupElement)
+	k2.ToExtended().ToCached(b)
+	c := new(CompletedGroupElement)
+	geSub(c, a, b)
+	tmp := new(ExtendedGroupElement)
+	c.ToExtended(tmp)
+	tmp.ToBytes(diff)
+}
+
+func HashToScalar(data ...[]byte) (result *Key) {
+	result = new(Key)
+	*result = Key(Keccak256(data...))
+	ScReduce32(result)
+	return
+}
+
+func TranscriptUpdate(transcript *Key, V []byte) Key {
+	// 3. Update transcript
+	var buf bytes.Buffer
+	buf.Write(transcript[:])
+	buf.Write(V)
+	result := Key(Keccak256(buf.Bytes()))
+
+	ScReduce32(&result)
+	*transcript = result
+	return result
 }

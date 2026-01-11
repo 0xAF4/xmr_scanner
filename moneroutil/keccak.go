@@ -1,9 +1,7 @@
 package moneroutil
 
 import (
-	"bytes"
-	"encoding/hex"
-	"errors"
+	"fmt"
 	"io"
 
 	"github.com/ebfe/keccak"
@@ -21,6 +19,36 @@ var (
 	NullHash = [HashLength]byte{}
 )
 
+func ReadVarInt(buf io.Reader) (result uint64, err error) {
+	b := make([]byte, 1)
+	var r uint64
+	var n int
+	for i := 0; ; i++ {
+		n, err = buf.Read(b)
+		if err != nil {
+			return
+		}
+		if n != 1 {
+			err = fmt.Errorf("Buffer ended prematurely for varint")
+			return
+		}
+		r += (uint64(b[0]) & 0x7f) << uint(i*7)
+		if uint64(b[0])&0x80 == 0 {
+			break
+		}
+	}
+	result = r
+	return
+}
+
+func Uint64ToBytes(num uint64) (result []byte) {
+	for ; num >= 0x80; num >>= 7 {
+		result = append(result, byte((num&0x7f)|0x80))
+	}
+	result = append(result, byte(num))
+	return
+}
+
 func Keccak256(data ...[]byte) (result Hash) {
 	h := keccak.New256()
 	for _, b := range data {
@@ -29,49 +57,4 @@ func Keccak256(data ...[]byte) (result Hash) {
 	r := h.Sum(nil)
 	copy(result[:], r)
 	return
-}
-
-func GetChecksum(data ...[]byte) (result Checksum) {
-	keccak256 := Keccak256(data...)
-	copy(result[:], keccak256[:4])
-	return
-}
-
-func Keccak512(data ...[]byte) (result Hash) {
-	h := keccak.New512()
-	for _, b := range data {
-		h.Write(b)
-	}
-	r := h.Sum(nil)
-	copy(result[:], r)
-	return
-}
-
-func (h Hash) String() string {
-	return hex.EncodeToString(h[:])
-}
-
-func HashesEqual(h1, h2 Hash) bool {
-	return bytes.Equal(h1[:], h2[:])
-}
-
-func ParseHash(buf io.Reader) (Hash, error) {
-	h := Hash{}
-	_, err := io.ReadFull(buf, h[:])
-	return h, err
-}
-
-func HexToHash(h string) (Hash, error) {
-	result := Hash{}
-	if len(h) != HashLength*2 {
-		return result, errors.New("hash hex string must be 64 bytes long")
-	}
-
-	byteSlice, err := hex.DecodeString(h)
-	if err != nil {
-		return result, err
-	}
-
-	copy(result[:], byteSlice)
-	return result, nil
 }
