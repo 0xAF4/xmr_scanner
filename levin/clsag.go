@@ -9,7 +9,7 @@ import (
 	"filippo.io/edwards25519"
 )
 
-func (t *Transaction) signCLSAGs(tx1 Transaction) ([]CLSAG, error) {
+func (t *Transaction) signCLSAGs() ([]CLSAG, error) {
 	CLSAGs := make([]CLSAG, len(t.Inputs))
 
 	full_message, err := GetFullMessage(moneroutil.Key(t.PrefixHash()), t.RctSignature, t.RctSigPrunable)
@@ -85,7 +85,7 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 	var D, a, aG, aH moneroutil.Key
 
 	// hwdev.clsag_prepare эквивалент
-	clsagPrepare(p, z, &D, H, &a, &aG, &aH)
+	clsagPrepare(z, &D, H, &a, &aG, &aH)
 
 	// Precompute key images //???????????
 	var I_precomp moneroutil.CachedGroupElement
@@ -193,8 +193,8 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 		os.Exit(1)
 
 		// Compute R = s[i]*H_p(P[i]) + c_p*I + c_c*D
-		var Hi_p3 moneroutil.ExtendedGroupElement
-		// moneroutil.HashToPoint(&Hi_p3, P[i])
+		Hi_p3 := new(moneroutil.ExtendedGroupElement)
+		Hi_p3 = P[i].HashToEC()
 		var H_precomp moneroutil.CachedGroupElement
 		Hi_p3.ToCached(&H_precomp)
 
@@ -211,7 +211,7 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 
 		i = (i + 1) % n
 		if i == 0 {
-			// sig.C1 = c
+			sig.C1 = Hash(c)
 		}
 
 		iteration++
@@ -248,58 +248,64 @@ func hashToScalar(keys []moneroutil.Key) moneroutil.Key {
 	return hashKey
 }
 
-func clsagPrepare(p, z moneroutil.Key, D *moneroutil.Key, H moneroutil.Key, a, aG, aH *moneroutil.Key) {
-	// D = z * H_p(P[l])
-	*D = moneroutil.ScalarMult(&z, &H)
-	// a = random scalar
-	a.FromScalar(randomScalar())
-	// aG = a * G
-	aG.FromPoint(new(edwards25519.Point).ScalarBaseMult(a.KeyToScalar()))
-	// aH = a * H
-	*aH = moneroutil.ScalarMult(a, &H)
+func clsagPrepare(z moneroutil.Key, D *moneroutil.Key, H moneroutil.Key, a, aG, aH *moneroutil.Key) {
+	*D = moneroutil.ScalarMult(&z, &H)                                    // D = z * H_p(P[l])
+	a.FromScalar(randomScalar())                                          // a = random scalar
+	aG.FromPoint(new(edwards25519.Point).ScalarBaseMult(a.KeyToScalar())) // aG = a * G
+	*aH = moneroutil.ScalarMult(a, &H)                                    // aH = a * H
 }
 
 func clsagSign(c, a, p, z, mu_P, mu_C *moneroutil.Key, s *moneroutil.Key) {
 	// s = a - c*mu_P*p - c*mu_C*z
-	// var cp_mu_P, cc_mu_C, cp_mu_P_p, cc_mu_C_z, temp moneroutil.Key
+	var cp_mu_P, cc_mu_C, cp_mu_P_p, cc_mu_C_z, temp moneroutil.Key
 
-	// moneroutil.ScMul(&cp_mu_P, c, mu_P)
-	// moneroutil.ScMul(&cc_mu_C, c, mu_C)
-	// moneroutil.ScMul(&cp_mu_P_p, &cp_mu_P, p)
-	// moneroutil.ScMul(&cc_mu_C_z, &cc_mu_C, z)
-	// moneroutil.ScAdd(&temp, &cp_mu_P_p, &cc_mu_C_z)
-	// moneroutil.ScSub(s, a, &temp)
+	moneroutil.ScMul(&cp_mu_P, *c, *mu_P)
+	moneroutil.ScMul(&cc_mu_C, *c, *mu_C)
+	moneroutil.ScMul(&cp_mu_P_p, cp_mu_P, *p)
+	moneroutil.ScMul(&cc_mu_C_z, cc_mu_C, *z)
+	moneroutil.ScAdd(&temp, &cp_mu_P_p, &cc_mu_C_z)
+	moneroutil.ScSub(s, a, &temp)
 }
 
 func addKeysAGbBcC(result *moneroutil.Key, a *moneroutil.Key, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*G + b*B + c*C
-	var aG_p3, bB_p3, cC_p3 moneroutil.ExtendedGroupElement
-	var temp1_p2, temp2_p1p1 moneroutil.ProjectiveGroupElement
 
-	moneroutil.GeScalarMultBase(&aG_p3, a)
-	moneroutil.GeScalarMult(&bB_p3, &b, B_precomp)
-	moneroutil.GeScalarMult(&cC_p3, c, C_precomp)
+	// a*G
+	// var aG_p3 moneroutil.ExtendedGroupElement
+	// moneroutil.GeScalarMultBase(&aG_p3, a)
 
-	aG_p3.ToProjective(&temp1_p2)
-	temp1_p2.ToExtended(&aG_p3)
+	// b*B
+	// var bB_p3 moneroutil.ExtendedGroupElement
+	// moneroutil.GeScalarMult(&bB_p3, b, B_precomp)
+
+	// c*C
+	// var cC_p3 moneroutil.ExtendedGroupElement
+	// moneroutil.GeScalarMult(&cC_p3, c, C_precomp)
 
 	// aG + bB
-	var sum1 moneroutil.ExtendedGroupElement
-	moneroutil.GeAdd(&sum1, &aG_p3, &bB_p3)
+	// var sum1 moneroutil.ExtendedGroupElement
+	// moneroutil.GeAdd(&sum1, &aG_p3, &bB_p3)
 
 	// (aG + bB) + cC
-	var final moneroutil.ExtendedGroupElement
-	moneroutil.GeAdd(&final, &sum1, &cC_p3)
+	// var final moneroutil.ExtendedGroupElement
+	// moneroutil.GeAdd(&final, &sum1, &cC_p3)
 
-	final.ToBytes(result)
+	// final.ToBytes(result)
 }
 
 func addKeysAAbBcC(result *moneroutil.Key, a *moneroutil.Key, A_precomp *moneroutil.CachedGroupElement, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*A + b*B + c*C
-	// var aA_p3, bB_p3, cC_p3 moneroutil.ExtendedGroupElement
 
+	// a*A
+	// var aA_p3 moneroutil.ExtendedGroupElement
 	// moneroutil.GeScalarMult(&aA_p3, a, A_precomp)
+
+	// b*B
+	// var bB_p3 moneroutil.ExtendedGroupElement
 	// moneroutil.GeScalarMult(&bB_p3, b, B_precomp)
+
+	// c*C
+	// var cC_p3 moneroutil.ExtendedGroupElement
 	// moneroutil.GeScalarMult(&cC_p3, c, C_precomp)
 
 	// aA + bB
@@ -307,10 +313,10 @@ func addKeysAAbBcC(result *moneroutil.Key, a *moneroutil.Key, A_precomp *monerou
 	// moneroutil.GeAdd(&sum1, &aA_p3, &bB_p3)
 
 	// (aA + bB) + cC
-	var final moneroutil.ExtendedGroupElement
+	// var final moneroutil.ExtendedGroupElement
 	// moneroutil.GeAdd(&final, &sum1, &cC_p3)
 
-	final.ToBytes(result)
+	// final.ToBytes(result)
 }
 
 func GetFullMessage(prefixHash moneroutil.Key, rv *RctSignature, rv2 *RctSigPrunable) (moneroutil.Key, error) {

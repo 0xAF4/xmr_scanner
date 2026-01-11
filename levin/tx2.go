@@ -318,7 +318,7 @@ func (t *Transaction) SignTransaction(tx1 Transaction) error {
 	}
 	t.RctSigPrunable.PseudoOuts = PseudoOuts
 
-	CLSAGs, err := t.signCLSAGs(tx1)
+	CLSAGs, err := t.signCLSAGs()
 	if err != nil {
 		return fmt.Errorf("failed to sign CLSAGs: %w", err)
 	}
