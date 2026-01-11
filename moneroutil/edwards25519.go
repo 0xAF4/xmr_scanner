@@ -3060,25 +3060,19 @@ func ScReduce32(s *Key) {
 }
 
 func (c *CachedGroupElement) ToExtended(r *ExtendedGroupElement) {
-	// Восстановить X, Y, Z, T из yPlusX, yMinusX, Z, T2d
-	// yPlusX = Y + X
-	// yMinusX = Y - X
-	// Следовательно: Y = (yPlusX + yMinusX) / 2, X = (yPlusX - yMinusX) / 2
-
-	FeAdd(&r.Y, &c.yPlusX, &c.yMinusX) // 2Y
-	FeSub(&r.X, &c.yPlusX, &c.yMinusX) // 2X
-
-	// Делим на 2 (умножаем на 1/2)
+	var two FieldElement
+	two[0] = 2
 	var invTwo FieldElement
-	invTwo[0] = 0x0f // Это приближенное значение, нужно правильное
-	// Более правильно - использовать сдвиг битов или правильную инверсию
+	FeInvert(&invTwo, &two)
 
-	// Простой способ - умножить на предвычисленную константу 1/2
-	// Но проще восстановить через операции
+	var tempY, tempX FieldElement
+	FeAdd(&tempY, &c.yPlusX, &c.yMinusX) // 2Y
+	FeSub(&tempX, &c.yPlusX, &c.yMinusX) // 2X
+
+	FeMul(&r.Y, &tempY, &invTwo) // Y
+	FeMul(&r.X, &tempX, &invTwo) // X
 
 	FeCopy(&r.Z, &c.Z)
-
-	// T = X*Y (восстановим позже)
 	FeMul(&r.T, &r.X, &r.Y)
 }
 
@@ -3105,32 +3099,33 @@ func GeTripleScalarmultPrecompVartime(r *ProjectiveGroupElement, a *Key, A *[8]C
 
 	for ; i >= 0; i-- {
 		r.Double(&t)
+		t.ToExtended(&u) // <-- ДОБАВИТЬ! Конвертируем результат удвоения
 
 		if aSlide[i] > 0 {
-			t.ToExtended(&u)
 			geAdd(&t, &u, &A[aSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ! Конвертируем после сложения
 		} else if aSlide[i] < 0 {
-			t.ToExtended(&u)
 			geSub(&t, &u, &A[(-aSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ! Конвертируем после вычитания
 		}
 
 		if bSlide[i] > 0 {
-			t.ToExtended(&u)
 			geAdd(&t, &u, &B[bSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		} else if bSlide[i] < 0 {
-			t.ToExtended(&u)
 			geSub(&t, &u, &B[(-bSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		}
 
 		if cSlide[i] > 0 {
-			t.ToExtended(&u)
 			geAdd(&t, &u, &C[cSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		} else if cSlide[i] < 0 {
-			t.ToExtended(&u)
 			geSub(&t, &u, &C[(-cSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		}
 
-		t.ToProjective(r)
+		t.ToProjective(r) // Финальная конвертация в Projective
 	}
 }
 
@@ -3148,7 +3143,6 @@ func GeTripleScalarmultBaseVartime(r *ProjectiveGroupElement, a *Key, b *Key, B 
 
 	r.Zero()
 
-	// Найти самый высокий ненулевой бит
 	for i = 255; i >= 0; i-- {
 		if aSlide[i] != 0 || bSlide[i] != 0 || cSlide[i] != 0 {
 			break
@@ -3157,30 +3151,30 @@ func GeTripleScalarmultBaseVartime(r *ProjectiveGroupElement, a *Key, b *Key, B 
 
 	for ; i >= 0; i-- {
 		r.Double(&t)
+		t.ToExtended(&u) // <-- ДОБАВИТЬ!
 
-		// Для базовой точки G используем precomputed таблицу bi
 		if aSlide[i] > 0 {
-			t.ToExtended(&u)
 			geMixedAdd(&t, &u, &bi[aSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		} else if aSlide[i] < 0 {
-			t.ToExtended(&u)
 			geMixedSub(&t, &u, &bi[(-aSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		}
 
 		if bSlide[i] > 0 {
-			t.ToExtended(&u)
 			geAdd(&t, &u, &B[bSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		} else if bSlide[i] < 0 {
-			t.ToExtended(&u)
 			geSub(&t, &u, &B[(-bSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		}
 
 		if cSlide[i] > 0 {
-			t.ToExtended(&u)
 			geAdd(&t, &u, &C[cSlide[i]/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		} else if cSlide[i] < 0 {
-			t.ToExtended(&u)
 			geSub(&t, &u, &C[(-cSlide[i])/2])
+			t.ToExtended(&u) // <-- ДОБАВИТЬ!
 		}
 
 		t.ToProjective(r)

@@ -87,8 +87,7 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 	clsagPrepare(z, &D, H, &a, &aG, &aH)
 
 	// Precompute key images //???????????
-	var I_precomp moneroutil.CachedGroupElement
-	var D_precomp moneroutil.CachedGroupElement
+	var I_precomp, D_precomp moneroutil.CachedGroupElement
 	var I_p3, D_p3 moneroutil.ExtendedGroupElement
 	// I_p3.FromBytes(&sig.I)
 	I := moneroutil.Key(keyImage)
@@ -100,7 +99,6 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 	// Offset key image: sig.D = D * INV_EIGHT
 	sig.D = Hash(moneroutil.ScalarMult(&moneroutil.INV_EIGHT, &D))
 
-	fmt.Println("Building aggregation hash vectors...")
 	// Aggregation hashes
 	mu_P_to_hash := make([]moneroutil.Key, 2*n+4)
 	mu_C_to_hash := make([]moneroutil.Key, 2*n+4)
@@ -163,21 +161,14 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 
 	iteration := 0
 	for i != l {
-		fmt.Printf("--- Iteration %d, i=%d ---\n", iteration, i)
 
 		// sig.s[i] = random scalar
 		sig.S[i] = Hash(randomScalar().Bytes())
-
-		fmt.Printf("sig.S[%d]: %x\n", i, sig.S[i])
 
 		// c_p = c * mu_P
 		moneroutil.ScMul(&c_p, c, mu_P)
 		// c_c = c * mu_C
 		moneroutil.ScMul(&c_c, c, mu_C)
-
-		fmt.Printf("c_p (c * mu_P): %x\n", c_p)
-		fmt.Printf("c_c (c * mu_C): %x\n", c_c)
-		fmt.Printf("Current c: %x\n", c)
 
 		// Precompute points
 		var P_precomp, C_precomp moneroutil.CachedGroupElement
@@ -189,25 +180,21 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 
 		// Compute L = s[i]*G + c_p*P[i] + c_c*C[i]
 		addKeysAGbBcC(&L, (*moneroutil.Key)(&sig.S[i]), &c_p, &P_precomp, &c_c, &C_precomp)
-		fmt.Printf("L: %x\n", L) //expected: 43378eaa19a3b8ac64d2d5dd0c7e05a98bbf554bba4705b0497f107341407845
-		// os.Exit(1)
 
-		// Compute R = s[i]*H_p(P[i]) + c_p*I + c_c*D
-		Hi_p3 := new(moneroutil.ExtendedGroupElement)
-		Hi_p3 = P[i].HashToEC()
+		// Precompute points
 		var H_precomp moneroutil.CachedGroupElement
-		Hi_p3.ToCached(&H_precomp)
+		var Hi_p3_2 moneroutil.Key
+		var Hi_p3_3 moneroutil.ExtendedGroupElement
+		P[i].HashToEC().ToBytes(&Hi_p3_2)
+		Hi_p3_3.FromBytes(&Hi_p3_2)
+		Hi_p3_3.ToCached(&H_precomp)
 
 		addKeysAAbBcC(&R, (*moneroutil.Key)(&sig.S[i]), &H_precomp, &c_p, &I_precomp, &c_c, &D_precomp)
-		fmt.Printf("R: %x\n", R)
-		// os.Exit(1)
 
 		c_to_hash[2*n+3] = L
 		c_to_hash[2*n+4] = R
 		c_new = hashToScalar(c_to_hash)
 		c = c_new
-
-		fmt.Printf("c_new: %x\n", c_new)
 
 		i = (i + 1) % n
 		if i == 0 {
@@ -217,20 +204,13 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 		iteration++
 	}
 
-	fmt.Printf("Final c1: %x\n", sig.C1)
-	fmt.Printf("Computing final scalar for index l=%d\n", l)
-
 	// Compute final scalar: s[l]
 	clsagSign(&c, &a, &p, &z, &mu_P, &mu_C, (*moneroutil.Key)(&sig.S[l]))
-
-	fmt.Printf("sig.S[%d] (final): %x\n", l, sig.S[l])
 
 	// Очистка секретного ключа a
 	for j := range a {
 		a[j] = 0
 	}
-
-	fmt.Println("=== ClsagGen END ===")
 
 	return sig, nil
 }
@@ -267,6 +247,8 @@ func clsagSign(c, a, p, z, mu_P, mu_C *moneroutil.Key, s *moneroutil.Key) {
 	moneroutil.ScSub(s, a, &temp)
 }
 
+// ge_dsmp = *moneroutil.CachedGroupElement
+// void addKeys_aGbBcC(key &aGbBcC, const key &a, const key &b, const ge_dsmp B, const key &c, const ge_dsmp C)
 func addKeysAGbBcC(result *moneroutil.Key, a *moneroutil.Key, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*G + b*B + c*C
 	// G is the fixed basepoint and B,C require precomputation
@@ -291,6 +273,8 @@ func addKeysAGbBcC(result *moneroutil.Key, a *moneroutil.Key, b *moneroutil.Key,
 	rv.ToBytes(result)
 }
 
+// ge_dsmp = *moneroutil.CachedGroupElement
+// void addKeys_aAbBcC(key &aAbBcC, const key &a, const ge_dsmp A, const key &b, const ge_dsmp B, const key &c, const ge_dsmp C)
 func addKeysAAbBcC(result *moneroutil.Key, a *moneroutil.Key, A_precomp *moneroutil.CachedGroupElement, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*A + b*B + c*C
 	// A,B,C require precomputation
