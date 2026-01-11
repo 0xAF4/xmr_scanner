@@ -3,7 +3,6 @@ package levin
 import (
 	"bytes"
 	"fmt"
-	"os"
 	moneroutil "xmr_scanner/moneroutil"
 
 	"filippo.io/edwards25519"
@@ -92,7 +91,9 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 	var D_precomp moneroutil.CachedGroupElement
 	var I_p3, D_p3 moneroutil.ExtendedGroupElement
 	// I_p3.FromBytes(&sig.I)
+	I := moneroutil.Key(keyImage)
 	D_p3.FromBytes(&D)
+	I_p3.FromBytes(&I)
 	I_p3.ToCached(&I_precomp)
 	D_p3.ToCached(&D_precomp)
 
@@ -188,9 +189,8 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 
 		// Compute L = s[i]*G + c_p*P[i] + c_c*C[i]
 		addKeysAGbBcC(&L, (*moneroutil.Key)(&sig.S[i]), &c_p, &P_precomp, &c_c, &C_precomp)
-
-		fmt.Printf("L: %x\n", L)
-		os.Exit(1)
+		fmt.Printf("L: %x\n", L) //expected: 43378eaa19a3b8ac64d2d5dd0c7e05a98bbf554bba4705b0497f107341407845
+		// os.Exit(1)
 
 		// Compute R = s[i]*H_p(P[i]) + c_p*I + c_c*D
 		Hi_p3 := new(moneroutil.ExtendedGroupElement)
@@ -199,8 +199,8 @@ func ClsagGen(message Hash, P []moneroutil.Key, p moneroutil.Key, C []moneroutil
 		Hi_p3.ToCached(&H_precomp)
 
 		addKeysAAbBcC(&R, (*moneroutil.Key)(&sig.S[i]), &H_precomp, &c_p, &I_precomp, &c_c, &D_precomp)
-
 		fmt.Printf("R: %x\n", R)
+		// os.Exit(1)
 
 		c_to_hash[2*n+3] = L
 		c_to_hash[2*n+4] = R
@@ -269,54 +269,50 @@ func clsagSign(c, a, p, z, mu_P, mu_C *moneroutil.Key, s *moneroutil.Key) {
 
 func addKeysAGbBcC(result *moneroutil.Key, a *moneroutil.Key, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*G + b*B + c*C
+	// G is the fixed basepoint and B,C require precomputation
 
-	// a*G
-	// var aG_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMultBase(&aG_p3, a)
+	// Создаем precomputed массивы для B и C
+	var B_array, C_array [8]moneroutil.CachedGroupElement
 
-	// b*B
-	// var bB_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMult(&bB_p3, b, B_precomp)
+	// Конвертируем CachedGroupElement в ExtendedGroupElement для precompute
+	var B_ext, C_ext moneroutil.ExtendedGroupElement
+	// var B_comp, C_comp moneroutil.CompletedGroupElement
 
-	// c*C
-	// var cC_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMult(&cC_p3, c, C_precomp)
+	// B_precomp -> Extended
+	B_precomp.ToExtended(&B_ext)
+	moneroutil.GePrecompute(&B_array, &B_ext)
 
-	// aG + bB
-	// var sum1 moneroutil.ExtendedGroupElement
-	// moneroutil.GeAdd(&sum1, &aG_p3, &bB_p3)
+	// C_precomp -> Extended
+	C_precomp.ToExtended(&C_ext)
+	moneroutil.GePrecompute(&C_array, &C_ext)
 
-	// (aG + bB) + cC
-	// var final moneroutil.ExtendedGroupElement
-	// moneroutil.GeAdd(&final, &sum1, &cC_p3)
-
-	// final.ToBytes(result)
+	var rv moneroutil.ProjectiveGroupElement
+	moneroutil.GeTripleScalarmultBaseVartime(&rv, a, b, &B_array, c, &C_array)
+	rv.ToBytes(result)
 }
 
 func addKeysAAbBcC(result *moneroutil.Key, a *moneroutil.Key, A_precomp *moneroutil.CachedGroupElement, b *moneroutil.Key, B_precomp *moneroutil.CachedGroupElement, c *moneroutil.Key, C_precomp *moneroutil.CachedGroupElement) {
 	// result = a*A + b*B + c*C
+	// A,B,C require precomputation
 
-	// a*A
-	// var aA_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMult(&aA_p3, a, A_precomp)
+	// Создаем precomputed массивы
+	var A_array, B_array, C_array [8]moneroutil.CachedGroupElement
 
-	// b*B
-	// var bB_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMult(&bB_p3, b, B_precomp)
+	// Конвертируем все в Extended и делаем precompute
+	var A_ext, B_ext, C_ext moneroutil.ExtendedGroupElement
 
-	// c*C
-	// var cC_p3 moneroutil.ExtendedGroupElement
-	// moneroutil.GeScalarMult(&cC_p3, c, C_precomp)
+	A_precomp.ToExtended(&A_ext)
+	moneroutil.GePrecompute(&A_array, &A_ext)
 
-	// aA + bB
-	// var sum1 moneroutil.ExtendedGroupElement
-	// moneroutil.GeAdd(&sum1, &aA_p3, &bB_p3)
+	B_precomp.ToExtended(&B_ext)
+	moneroutil.GePrecompute(&B_array, &B_ext)
 
-	// (aA + bB) + cC
-	// var final moneroutil.ExtendedGroupElement
-	// moneroutil.GeAdd(&final, &sum1, &cC_p3)
+	C_precomp.ToExtended(&C_ext)
+	moneroutil.GePrecompute(&C_array, &C_ext)
 
-	// final.ToBytes(result)
+	var rv moneroutil.ProjectiveGroupElement
+	moneroutil.GeTripleScalarmultPrecompVartime(&rv, a, &A_array, b, &B_array, c, &C_array)
+	rv.ToBytes(result)
 }
 
 func GetFullMessage(prefixHash moneroutil.Key, rv *RctSignature, rv2 *RctSigPrunable) (moneroutil.Key, error) {

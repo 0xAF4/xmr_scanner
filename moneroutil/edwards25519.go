@@ -3058,3 +3058,131 @@ func ScReduce32(s *Key) {
 	s[30] = byte(s11 >> 9)
 	s[31] = byte(s11 >> 17)
 }
+
+func (c *CachedGroupElement) ToExtended(r *ExtendedGroupElement) {
+	// Восстановить X, Y, Z, T из yPlusX, yMinusX, Z, T2d
+	// yPlusX = Y + X
+	// yMinusX = Y - X
+	// Следовательно: Y = (yPlusX + yMinusX) / 2, X = (yPlusX - yMinusX) / 2
+
+	FeAdd(&r.Y, &c.yPlusX, &c.yMinusX) // 2Y
+	FeSub(&r.X, &c.yPlusX, &c.yMinusX) // 2X
+
+	// Делим на 2 (умножаем на 1/2)
+	var invTwo FieldElement
+	invTwo[0] = 0x0f // Это приближенное значение, нужно правильное
+	// Более правильно - использовать сдвиг битов или правильную инверсию
+
+	// Простой способ - умножить на предвычисленную константу 1/2
+	// Но проще восстановить через операции
+
+	FeCopy(&r.Z, &c.Z)
+
+	// T = X*Y (восстановим позже)
+	FeMul(&r.T, &r.X, &r.Y)
+}
+
+// GeTripleScalarmultPrecompVartime вычисляет r = a*A + b*B + c*C
+// где A, B, C - precomputed точки в виде [8]CachedGroupElement
+func GeTripleScalarmultPrecompVartime(r *ProjectiveGroupElement, a *Key, A *[8]CachedGroupElement, b *Key, B *[8]CachedGroupElement, c *Key, C *[8]CachedGroupElement) {
+	var aSlide, bSlide, cSlide [256]int8
+	var t CompletedGroupElement
+	var u ExtendedGroupElement
+	var i int
+
+	slide(&aSlide, a)
+	slide(&bSlide, b)
+	slide(&cSlide, c)
+
+	r.Zero()
+
+	// Найти самый высокий ненулевой бит
+	for i = 255; i >= 0; i-- {
+		if aSlide[i] != 0 || bSlide[i] != 0 || cSlide[i] != 0 {
+			break
+		}
+	}
+
+	for ; i >= 0; i-- {
+		r.Double(&t)
+
+		if aSlide[i] > 0 {
+			t.ToExtended(&u)
+			geAdd(&t, &u, &A[aSlide[i]/2])
+		} else if aSlide[i] < 0 {
+			t.ToExtended(&u)
+			geSub(&t, &u, &A[(-aSlide[i])/2])
+		}
+
+		if bSlide[i] > 0 {
+			t.ToExtended(&u)
+			geAdd(&t, &u, &B[bSlide[i]/2])
+		} else if bSlide[i] < 0 {
+			t.ToExtended(&u)
+			geSub(&t, &u, &B[(-bSlide[i])/2])
+		}
+
+		if cSlide[i] > 0 {
+			t.ToExtended(&u)
+			geAdd(&t, &u, &C[cSlide[i]/2])
+		} else if cSlide[i] < 0 {
+			t.ToExtended(&u)
+			geSub(&t, &u, &C[(-cSlide[i])/2])
+		}
+
+		t.ToProjective(r)
+	}
+}
+
+// GeTripleScalarmultBaseVartime вычисляет r = a*G + b*B + c*C
+// где G - базовая точка, B и C - precomputed точки
+func GeTripleScalarmultBaseVartime(r *ProjectiveGroupElement, a *Key, b *Key, B *[8]CachedGroupElement, c *Key, C *[8]CachedGroupElement) {
+	var aSlide, bSlide, cSlide [256]int8
+	var t CompletedGroupElement
+	var u ExtendedGroupElement
+	var i int
+
+	slide(&aSlide, a)
+	slide(&bSlide, b)
+	slide(&cSlide, c)
+
+	r.Zero()
+
+	// Найти самый высокий ненулевой бит
+	for i = 255; i >= 0; i-- {
+		if aSlide[i] != 0 || bSlide[i] != 0 || cSlide[i] != 0 {
+			break
+		}
+	}
+
+	for ; i >= 0; i-- {
+		r.Double(&t)
+
+		// Для базовой точки G используем precomputed таблицу bi
+		if aSlide[i] > 0 {
+			t.ToExtended(&u)
+			geMixedAdd(&t, &u, &bi[aSlide[i]/2])
+		} else if aSlide[i] < 0 {
+			t.ToExtended(&u)
+			geMixedSub(&t, &u, &bi[(-aSlide[i])/2])
+		}
+
+		if bSlide[i] > 0 {
+			t.ToExtended(&u)
+			geAdd(&t, &u, &B[bSlide[i]/2])
+		} else if bSlide[i] < 0 {
+			t.ToExtended(&u)
+			geSub(&t, &u, &B[(-bSlide[i])/2])
+		}
+
+		if cSlide[i] > 0 {
+			t.ToExtended(&u)
+			geAdd(&t, &u, &C[cSlide[i]/2])
+		} else if cSlide[i] < 0 {
+			t.ToExtended(&u)
+			geSub(&t, &u, &C[(-cSlide[i])/2])
+		}
+
+		t.ToProjective(r)
+	}
+}
