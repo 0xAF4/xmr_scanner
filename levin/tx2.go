@@ -345,8 +345,8 @@ func (t *Transaction) PrefixHash() Hash {
 
 	buf.Write(encodeVarint(uint64(len(t.Extra))))
 	buf.Write(t.Extra)
-
 	hash := keccak256(buf.Bytes())
+
 	return Hash(hash)
 }
 

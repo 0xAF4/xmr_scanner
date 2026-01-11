@@ -234,7 +234,7 @@ type Out struct {
 }
 
 func GetMixins(keyOffsets []uint64, inputIndx uint64) (*[]Mixin, *int, error) {
-	indxs := keyOffsets
+	indxs := append([]uint64(nil), keyOffsets...)
 	for i := 1; i < len(indxs); i++ {
 		indxs[i] = indxs[i] + indxs[i-1]
 	}
@@ -260,7 +260,8 @@ func GetMixins(keyOffsets []uint64, inputIndx uint64) (*[]Mixin, *int, error) {
 		return nil, nil, err
 	}
 
-	req, err := http.NewRequest("POST", "https://xmr.unshakled.net:443/get_outs", bytes.NewReader(data))
+	// req, err := http.NewRequest("POST", "https://xmr.unshakled.net:443/get_outs", bytes.NewReader(data))
+	req, err := http.NewRequest("POST", "https://xmr3.doggett.tech:18089/get_outs", bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
 	}
