@@ -8,8 +8,6 @@ import (
 	"math/big"
 	"strings"
 
-	moneroutil "xmr_scanner/moneroutil"
-
 	"filippo.io/edwards25519"
 	"golang.org/x/crypto/sha3"
 )
@@ -480,7 +478,7 @@ func encryptPaymentID(paymentID, pubViewKey, txSecretKey []byte) ([8]byte, error
 
 	// append magic byte 0x8d
 	data := append(shared, 0x8d)
-	hash := moneroutil.Keccak256(data)
+	hash := keccak256(data)
 
 	var encrypted [8]byte
 	for i := 0; i < 8; i++ {

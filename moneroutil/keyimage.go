@@ -42,9 +42,17 @@ func GenerateKeyDerivation(pubKey, secKey *Key) (keyDerivation Key, ok bool) {
 	return
 }
 
+func Uint64ToBytes(num uint64) (result []byte) {
+	for ; num >= 0x80; num >>= 7 {
+		result = append(result, byte((num&0x7f)|0x80))
+	}
+	result = append(result, byte(num))
+	return
+}
+
 func derivationToScalar(derivation *Key, outIndex uint64) (scalar Key) {
 	data := append((*derivation)[:], Uint64ToBytes(outIndex)...)
-	scalar = Key(Keccak256(data))
+	scalar = Key(keccak256(data))
 	ScReduce32(&scalar)
 	return
 }

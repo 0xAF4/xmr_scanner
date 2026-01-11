@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"filippo.io/edwards25519"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -48,12 +49,18 @@ func (p *Key) PubKey() (pubKey *Key) {
 	return
 }
 
+func keccak256(data []byte) []byte {
+	h := sha3.NewLegacyKeccak256()
+	h.Write(data)
+	return h.Sum(nil)
+}
+
 // Creates a point on the Edwards Curve by hashing the key
 func (p *Key) HashToEC() (result *ExtendedGroupElement) {
 	result = new(ExtendedGroupElement)
 	var p1 ProjectiveGroupElement
 	var p2 CompletedGroupElement
-	h := Key(Keccak256(p[:]))
+	h := Key(keccak256(p[:]))
 	p1.FromBytes(&h)
 	GeMul8(&p2, &p1)
 	p2.ToExtended(result)
@@ -188,8 +195,14 @@ func SubKeys(diff, k1, k2 *Key) {
 }
 
 func HashToScalar(data ...[]byte) (result *Key) {
+
+	var buf bytes.Buffer
+	for _, b := range data {
+		buf.Write(b)
+	}
+
 	result = new(Key)
-	*result = Key(Keccak256(data...))
+	*result = Key(keccak256(buf.Bytes()))
 	ScReduce32(result)
 	return
 }
@@ -199,7 +212,7 @@ func TranscriptUpdate(transcript *Key, V []byte) Key {
 	var buf bytes.Buffer
 	buf.Write(transcript[:])
 	buf.Write(V)
-	result := Key(Keccak256(buf.Bytes()))
+	result := Key(keccak256(buf.Bytes()))
 
 	ScReduce32(&result)
 	*transcript = result
