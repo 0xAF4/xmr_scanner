@@ -117,7 +117,7 @@ func main() {
 	noty.NotifyWithLevel(fmt.Sprintf("TxRaw1: %x", tx1.Serialize()), LevelSuccess)
 	noty.NotifyWithLevel(fmt.Sprintf("TxRaw2: %x", tx2.Serialize()), LevelSuccess)
 
-	// keyImage, pubKeys, sig := moneroutil.CreateSignature()
+	// keyImage, pubKeys, sig := CreateSignature()
 	// fmt.Printf("KeyImage: %s\n", keyImage)
 	// fmt.Printf("PubKeys:\n")
 	// for i, pk := range pubKeys {

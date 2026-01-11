@@ -1,4 +1,4 @@
-package moneroutil
+package levin
 
 import (
 	"bytes"
@@ -8,7 +8,6 @@ import (
 	"io"
 
 	"filippo.io/edwards25519"
-	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -47,12 +46,6 @@ func (p *Key) PubKey() (pubKey *Key) {
 	pubKey = new(Key)
 	point.ToBytes(pubKey)
 	return
-}
-
-func keccak256(data []byte) []byte {
-	h := sha3.NewLegacyKeccak256()
-	h.Write(data)
-	return h.Sum(nil)
 }
 
 // Creates a point on the Edwards Curve by hashing the key

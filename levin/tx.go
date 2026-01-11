@@ -282,7 +282,7 @@ func (tx *Transaction) CheckOutputs(address string, privateViewKey string) (floa
 			fmt.Println("Output view_tag is match✅")
 		}
 
-		derivedKey, err := DerivePublicKey(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(outputIndex))
+		derivedKey, err := DerivePublicKeyMy(txPubKey, privViewKeyBytes, pubSpendKey[:], uint64(outputIndex))
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to derive public key for output %d: %w", outputIndex, err)
 		}

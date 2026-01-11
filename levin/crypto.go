@@ -15,7 +15,7 @@ import (
 const moneroBase58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 var b58Map [256]int
-var INV_EIGHT *edwards25519.Scalar
+var INV_EIGHT_E *edwards25519.Scalar
 
 func init() {
 	for i := range b58Map {
@@ -25,7 +25,7 @@ func init() {
 		b58Map[c] = i
 	}
 	invEightBytes, _ := hex.DecodeString("792fdce229e50661d0da1c7db39dd30700000000000000000000000000000006")
-	INV_EIGHT, _ = new(edwards25519.Scalar).SetCanonicalBytes(invEightBytes)
+	INV_EIGHT_E, _ = new(edwards25519.Scalar).SetCanonicalBytes(invEightBytes)
 }
 
 // decodeMoneroBase58 decodes Monero's special base58 string into bytes.
@@ -226,7 +226,7 @@ func sc_reduce32(in []byte) []byte {
 	return result
 }
 
-func DerivePublicKey(txPubKey, privateViewKey, pubSpendKey []byte, index uint64) ([]byte, error) {
+func DerivePublicKeyMy(txPubKey, privateViewKey, pubSpendKey []byte, index uint64) ([]byte, error) {
 	// Validate input lengths
 	if len(txPubKey) != 32 {
 		return nil, errors.New("txPubKey must be 32 bytes")

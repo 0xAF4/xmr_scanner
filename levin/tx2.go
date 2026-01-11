@@ -7,8 +7,6 @@ import (
 	"math/rand"
 	"time"
 
-	moneroutil "xmr_scanner/moneroutil"
-
 	"filippo.io/edwards25519"
 )
 
@@ -61,7 +59,7 @@ func NewEmptyTransaction() *Transaction {
 		},
 	}
 
-	// tx.SecretKey = moneroutil.RandomScalar().ToBytes()
+	// tx.SecretKey = RandomScalar().ToBytes()
 	if h, err := hexTo32(txPrivateKeyHex); err == nil {
 		tx.SecretKey = Hash(h)
 	}
@@ -209,11 +207,11 @@ func (t *Transaction) writeInput2(prm TxPrm) error {
 		return fmt.Errorf("failed to extract tx public key: %w", err)
 	}
 
-	mPrivViewKey := moneroutil.Key(privViewKeyBytes)
-	mPubSpendKey := moneroutil.Key(pubSpendKey)
-	mTxPubKey := moneroutil.Key(txPubKey)
-	mSecSpendKey, err := moneroutil.ParseKeyFromHex(prm["privateSpendKey"].(string))
-	keyImage, derivedPriKey, err := moneroutil.CreateKeyImage(&mPubSpendKey, &mSecSpendKey, &mPrivViewKey, &mTxPubKey, uint64(vout))
+	mPrivViewKey := Key(privViewKeyBytes)
+	mPubSpendKey := Key(pubSpendKey)
+	mTxPubKey := Key(txPubKey)
+	mSecSpendKey, err := ParseKeyFromHex(prm["privateSpendKey"].(string))
+	keyImage, derivedPriKey, err := CreateKeyImage(&mPubSpendKey, &mSecSpendKey, &mPrivViewKey, &mTxPubKey, uint64(vout))
 	if err != nil {
 		return fmt.Errorf("failed to create key image using moneroutil: %w", err)
 	}
@@ -260,16 +258,16 @@ func (t *Transaction) writeOutput2(prm TxPrm) error {
 		return fmt.Errorf("failed to derive view tag: %w", err)
 	}
 
-	mPubViewKey := moneroutil.Key(pubViewKey)
-	mTxSecretKey := moneroutil.Key(t.SecretKey)
-	mPubSpendKey := moneroutil.Key(pubSpendKey)
+	mPubViewKey := Key(pubViewKey)
+	mTxSecretKey := Key(t.SecretKey)
+	mPubSpendKey := Key(pubSpendKey)
 
-	derivation, ok := moneroutil.GenerateKeyDerivation(&mPubViewKey, &mTxSecretKey)
+	derivation, ok := GenerateKeyDerivation(&mPubViewKey, &mTxSecretKey)
 	if !ok {
 		return fmt.Errorf("generate key derivation failed")
 	}
 
-	derivedKey, ok := moneroutil.DerivePublicKey(&derivation, currentIndex, &mPubSpendKey)
+	derivedKey, ok := DerivePublicKey(&derivation, currentIndex, &mPubSpendKey)
 	if !ok {
 		return fmt.Errorf("derive public key failed")
 	}
